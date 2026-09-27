@@ -4,6 +4,7 @@ import math
 from dataclasses import dataclass, field
 
 from core.models import JointState, Pose, Result
+from simulation.mg400_kinematics import MG400Kinematics, MG400KinematicSpec
 from simulation.pybullet_engine import PyBulletEngine
 
 
@@ -61,14 +62,12 @@ class SimulationSnapshot:
 
 
 class KinematicMG400Model:
-    """Engine-replaceable MG400 simulation model.
-
-    This is deterministic and hardware-free. PyBullet can replace it later
-    without changing DeviceManager/UI command flow.
-    """
+    """Hardware-free MG400 simulation model with SCARA-style kinematics."""
 
     def __init__(self, limits: WorkspaceLimit | None = None) -> None:
         self.limits = limits or WorkspaceLimit()
+        self.spec = MG400KinematicSpec()
+        self.kinematics = MG400Kinematics(self.spec)
         self.pose = Pose()
         self.joints = self.estimate_joints(self.pose)
         self.last_path: list[Pose] = [self.pose]
@@ -173,6 +172,8 @@ class KinematicMG400Model:
             return Result.fail(f"Target exceeds maximum reach radius {limits.max_radius:.0f} mm", "REACH")
         if radius < limits.min_radius:
             return Result.fail("Target is too close to robot base", "REACH_MIN")
+        if self.kinematics.inverse(pose) is None:
+            return Result.fail("Target has no valid MG400 joint solution", "KINEMATICS")
         return Result.ok()
 
     def check_path(self, path: list[Pose]) -> list[str]:
@@ -190,13 +191,10 @@ class KinematicMG400Model:
         return warnings
 
     def estimate_joints(self, pose: Pose) -> JointState:
-        radius = math.hypot(pose.x, pose.y)
-        return JointState(
-            j1=math.degrees(math.atan2(pose.y, pose.x)),
-            j2=max(-160.0, min(160.0, (pose.z - 180.0) / 1.4)),
-            j3=max(-160.0, min(160.0, (radius - 250.0) / 1.6)),
-            j4=max(-180.0, min(180.0, pose.r)),
-        )
+        return self.kinematics.inverse(pose) or self.kinematics.fallback_joints(pose)
+
+    def forward_kinematics(self, joints: JointState) -> Pose:
+        return self.kinematics.forward(joints)
 
     def _build_path(self, start: Pose, target: Pose, motion: str, speed: float, acceleration: float) -> list[Pose]:
         distance = math.sqrt((target.x - start.x) ** 2 + (target.y - start.y) ** 2 + (target.z - start.z) ** 2)

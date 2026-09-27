@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from core.models import Pose
+from simulation.mg400_kinematics import MG400Kinematics
 from simulation.robot_model import KinematicMG400Model
 from simulation.pybullet_engine import PyBulletEngine
 
@@ -21,6 +22,24 @@ class SimulationModelTests(unittest.TestCase):
         result = model.move(Pose(700, 0, 210, 0), "MoveL", 20, 50)
         self.assertFalse(result.success)
         self.assertEqual(result.error_code, "LIMIT_X")
+
+    def test_mg400_inverse_forward_roundtrip(self) -> None:
+        kinematics = MG400Kinematics()
+        target = Pose(300, 80, 210, 45)
+        joints = kinematics.inverse(target)
+        self.assertIsNotNone(joints)
+        assert joints is not None
+        pose = kinematics.forward(joints)
+        self.assertAlmostEqual(pose.x, target.x, places=6)
+        self.assertAlmostEqual(pose.y, target.y, places=6)
+        self.assertAlmostEqual(pose.z, target.z, places=6)
+        self.assertAlmostEqual(pose.r, target.r, places=6)
+
+    def test_invalid_mg400_joint_solution_is_rejected(self) -> None:
+        model = KinematicMG400Model()
+        result = model.move(Pose(-430, 20, 210, 0), "MoveJ", 20, 50)
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_code, "KINEMATICS")
 
     def test_pybullet_backend_is_optional(self) -> None:
         engine = PyBulletEngine()

@@ -4,17 +4,14 @@ import math
 from typing import TYPE_CHECKING
 
 from core.models import JointState, Pose
+from simulation.mg400_kinematics import MG400Kinematics, MG400KinematicSpec
 
 if TYPE_CHECKING:
     from simulation.robot_model import SimulationObject, ToolProfile
 
 
 class PyBulletEngine:
-    """Optional simulation backend wrapper.
-
-    V1 can run without pybullet. When pybullet and an MG400 model are added,
-    this class can replace the Qt preview without changing UI command flow.
-    """
+    """Optional PyBullet renderer for the MG400 kinematic simulation."""
 
     def __init__(self) -> None:
         try:
@@ -29,6 +26,8 @@ class PyBulletEngine:
         self.object_body_ids: list[int] = []
         self.camera_view = "Model"
         self.tool_profile: ToolProfile | None = None
+        self.spec = MG400KinematicSpec()
+        self.kinematics = MG400Kinematics(self.spec)
         self.ready = False
 
     @property
@@ -63,11 +62,11 @@ class PyBulletEngine:
         plane_body = p.createMultiBody(baseMass=0, baseCollisionShapeIndex=plane_shape, physicsClientId=self.client_id)
         p.changeDynamics(plane_body, -1, lateralFriction=0.8, physicsClientId=self.client_id)
         self.body_ids = [
-            self._box((0.18, 0.18, 0.08), (0.35, 0.35, 0.40, 1.0)),
-            self._cylinder(0.07, 0.18, (0.20, 0.25, 0.32, 1.0)),
-            self._box((0.28, 0.055, 0.055), (0.82, 0.86, 0.90, 1.0)),
-            self._box((0.24, 0.050, 0.050), (0.82, 0.86, 0.90, 1.0)),
-            self._box((0.12, 0.045, 0.045), (0.12, 0.16, 0.20, 1.0)),
+            self._box((0.19, 0.19, 0.07), (0.32, 0.33, 0.38, 1.0)),
+            self._cylinder(0.065, 0.23, (0.18, 0.22, 0.28, 1.0)),
+            self._box((0.22, 0.058, 0.052), (0.82, 0.86, 0.88, 1.0)),
+            self._box((0.22, 0.052, 0.048), (0.82, 0.86, 0.88, 1.0)),
+            self._box((0.085, 0.040, 0.040), (0.08, 0.12, 0.18, 1.0)),
         ]
         self.gripper_ids = [
             self._box((0.012, 0.012, 0.070), (0.05, 0.08, 0.12, 1.0)),
@@ -142,6 +141,8 @@ class PyBulletEngine:
         for body, start, end in zip(self.body_ids[2:], points[:-1], points[1:]):
             self._place_link(body, start, end)
         tool = points[-1]
+        tool_yaw = math.radians(pose.r)
+        finger_axis = (-math.sin(tool_yaw), math.cos(tool_yaw), 0.0)
         closed_width = (tool_profile.closed_width if tool_profile is not None else 16.0) / 1000.0
         open_width = (tool_profile.open_width if tool_profile is not None else 42.0) / 1000.0
         offset_z = (tool_profile.tcp_offset_z if tool_profile is not None else 65.0) / 1000.0
@@ -157,8 +158,14 @@ class PyBulletEngine:
             )
             p.resetBasePositionAndOrientation(
                 body,
-                [tool[0], tool[1] + y_offset, tool[2] - offset_z * 0.55] if not is_vacuum else [2.0, 2.0, -1.0],
-                p.getQuaternionFromEuler([0, 0, 0]),
+                [
+                    tool[0] + finger_axis[0] * y_offset,
+                    tool[1] + finger_axis[1] * y_offset,
+                    tool[2] - offset_z * 0.55,
+                ]
+                if not is_vacuum
+                else [2.0, 2.0, -1.0],
+                p.getQuaternionFromEuler([0, 0, tool_yaw]),
                 physicsClientId=self.client_id,
             )
         if self.vacuum_id is not None:
@@ -171,7 +178,7 @@ class PyBulletEngine:
             p.resetBasePositionAndOrientation(
                 self.vacuum_id,
                 [tool[0], tool[1], tool[2] - offset_z] if is_vacuum else [2.0, 2.0, -1.0],
-                p.getQuaternionFromEuler([0, math.pi / 2, 0]),
+                p.getQuaternionFromEuler([0, 0, tool_yaw]),
                 physicsClientId=self.client_id,
             )
         if objects is not None:
@@ -289,12 +296,4 @@ class PyBulletEngine:
         )
 
     def _link_points(self, pose: Pose, joints: JointState) -> list[tuple[float, float, float]]:
-        yaw = math.radians(joints.j1)
-        radius = math.hypot(pose.x, pose.y) / 1000.0
-        target = (pose.x / 1000.0, pose.y / 1000.0, pose.z / 1000.0)
-        shoulder = (0.0, 0.0, 0.18)
-        elbow_r = min(max(radius * 0.55, 0.11), 0.27)
-        elbow = (math.cos(yaw) * elbow_r, math.sin(yaw) * elbow_r, 0.29 + joints.j2 / 1200.0)
-        wrist_r = min(max(radius * 0.82, 0.18), 0.38)
-        wrist = (math.cos(yaw) * wrist_r, math.sin(yaw) * wrist_r, max(0.08, target[2] + 0.055))
-        return [shoulder, elbow, wrist, target]
+        return self.kinematics.link_points_m(pose, joints)
