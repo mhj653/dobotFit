@@ -1,0 +1,101 @@
+[
+  {
+    "no": 1,
+    "device": "Robot",
+    "command": "MoveJ",
+    "target": "HOME",
+    "comment": "",
+    "status": "Ready",
+    "elapsed_ms": 0.0
+  },
+  {
+    "no": 2,
+    "device": "Robot",
+    "command": "MoveJ",
+    "target": "PICK_APPROACH",
+    "comment": "",
+    "status": "Ready",
+    "elapsed_ms": 0.0
+  },
+  {
+    "no": 3,
+    "device": "Robot",
+    "command": "MoveL",
+    "target": "PICK",
+    "comment": "",
+    "status": "Ready",
+    "elapsed_ms": 0.0
+  },
+  {
+    "no": 4,
+    "device": "Gripper",
+    "command": "Close",
+    "target": "",
+    "comment": "",
+    "status": "Ready",
+    "elapsed_ms": 0.0
+  },
+  {
+    "no": 5,
+    "device": "Wait",
+    "command": "Time",
+    "target": "300",
+    "comment": "",
+    "status": "Ready",
+    "elapsed_ms": 0.0
+  },
+  {
+    "no": 6,
+    "device": "Wait",
+    "command": "DI",
+    "target": "1",
+    "comment": "",
+    "status": "Ready",
+    "elapsed_ms": 0.0
+  },
+  {
+    "no": 7,
+    "device": "Robot",
+    "command": "MoveL",
+    "target": "PICK_APPROACH",
+    "comment": "",
+    "status": "Ready",
+    "elapsed_ms": 0.0
+  },
+  {
+    "no": 8,
+    "device": "Vision",
+    "command": "Detect",
+    "target": "ScrewHole",
+    "comment": "",
+    "status": "Ready",
+    "elapsed_ms": 0.0
+  },
+  {
+    "no": 9,
+    "device": "Robot",
+    "command": "MoveL",
+    "target": "VISION_XYZ",
+    "comment": "",
+    "status": "Ready",
+    "elapsed_ms": 0.0
+  },
+  {
+    "no": 10,
+    "device": "Gripper",
+    "command": "Open",
+    "target": "",
+    "comment": "",
+    "status": "Ready",
+    "elapsed_ms": 0.0
+  },
+  {
+    "no": 11,
+    "device": "PLC",
+    "command": "SetOutput",
+    "target": "COMPLETE=ON",
+    "comment": "",
+    "status": "Ready",
+    "elapsed_ms": 0.0
+  }
+]

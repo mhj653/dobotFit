@@ -1,0 +1,194 @@
+QMainWindow, QWidget {
+    font-family: "Segoe UI", "Malgun Gothic", Arial, sans-serif;
+    font-size: 10pt;
+    color: #172033;
+}
+QMainWindow {
+    background: #eef3f8;
+}
+QFrame#sidebar {
+    background: #102033;
+    border: none;
+}
+QLabel#brand {
+    color: white;
+    font-size: 15pt;
+    font-weight: 700;
+}
+QLabel#subtitle {
+    color: #b6c5d7;
+}
+QPushButton#navButton {
+    color: #dbe7f5;
+    background: transparent;
+    text-align: left;
+    border: none;
+    padding: 12px 14px;
+    border-radius: 4px;
+}
+QPushButton#navButton:checked {
+    color: white;
+    background: #126be8;
+}
+QFrame#topbar {
+    background: #ffffff;
+    border-bottom: 1px solid #d9e2ec;
+}
+QLabel#topbarTitle {
+    color: #172033;
+    font-size: 13pt;
+    font-weight: 700;
+}
+QFrame#panel {
+    background: #ffffff;
+    border: 1px solid #dce5ef;
+    border-radius: 8px;
+}
+QSplitter::handle {
+    background: #dce5ef;
+}
+QScrollArea {
+    background: #ffffff;
+    border: none;
+}
+QScrollArea > QWidget > QWidget {
+    background: #ffffff;
+}
+QGroupBox {
+    background: #f8fbfe;
+    border: 1px solid #dce5ef;
+    border-radius: 8px;
+    margin-top: 12px;
+    padding: 12px 8px 8px 8px;
+    font-weight: 600;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0 6px;
+    left: 8px;
+}
+QGroupBox#visionPanel {
+    margin-top: 8px;
+    padding: 8px 6px 6px 6px;
+}
+QFrame[class="card"] {
+    background: #ffffff;
+    border: 1px solid #dce5ef;
+    border-radius: 8px;
+}
+QLabel[class="title"] {
+    font-size: 12pt;
+    font-weight: 700;
+}
+QLabel[class="muted"] {
+    color: #5f6f84;
+}
+QLabel[class="ok"] {
+    color: #0aa84f;
+    font-weight: 700;
+}
+QLabel[class="warn"] {
+    color: #d97706;
+    font-weight: 700;
+}
+QLabel[class="bad"] {
+    color: #dc2626;
+    font-weight: 700;
+}
+QPushButton {
+    background: #e9eef5;
+    border: 1px solid #d3deeb;
+    border-radius: 5px;
+    padding: 8px 12px;
+    min-height: 24px;
+}
+QPushButton:hover {
+    background: #dfe7f1;
+}
+QPushButton[class="primary"] {
+    background: #126be8;
+    color: white;
+    border: 1px solid #126be8;
+    font-weight: 600;
+}
+QPushButton[class="success"] {
+    background: #16a34a;
+    color: white;
+    border: 1px solid #16a34a;
+    font-weight: 600;
+}
+QPushButton[class="danger"] {
+    background: #fff1f2;
+    color: #be123c;
+    border: 1px solid #fecdd3;
+    font-weight: 600;
+}
+QPushButton[vision="true"] {
+    padding: 4px 8px;
+    min-height: 20px;
+}
+QLineEdit, QDoubleSpinBox, QSpinBox, QComboBox {
+    background: #ffffff;
+    border: 1px solid #d6e0ea;
+    border-radius: 5px;
+    padding: 6px;
+    min-height: 24px;
+    selection-background-color: #126be8;
+    selection-color: #ffffff;
+}
+QComboBox {
+    padding-right: 26px;
+}
+QDoubleSpinBox[vision="true"], QComboBox[vision="true"] {
+    padding: 3px 5px;
+    min-height: 20px;
+}
+QComboBox::drop-down {
+    width: 24px;
+    border-left: 1px solid #d6e0ea;
+}
+QComboBox QAbstractItemView {
+    background: #ffffff;
+    color: #172033;
+    border: 1px solid #cbd7e5;
+    selection-background-color: #d9ebff;
+}
+QTableWidget {
+    background: white;
+    border: 1px solid #dce5ef;
+    gridline-color: #edf2f7;
+    selection-background-color: #d9ebff;
+    selection-color: #172033;
+}
+QHeaderView::section {
+    background: #f5f8fb;
+    border: none;
+    border-right: 1px solid #e5edf5;
+    border-bottom: 1px solid #dce5ef;
+    padding: 7px;
+    font-weight: 600;
+}
+QTableCornerButton::section {
+    background: #f5f8fb;
+    border: none;
+    border-right: 1px solid #e5edf5;
+    border-bottom: 1px solid #dce5ef;
+}
+QTabWidget::pane {
+    border: 1px solid #dce5ef;
+    background: #ffffff;
+    border-radius: 8px;
+}
+QTabBar::tab {
+    background: #e9eef5;
+    border: 1px solid #d3deeb;
+    padding: 8px 14px;
+    margin-right: 2px;
+    border-top-left-radius: 5px;
+    border-top-right-radius: 5px;
+}
+QTabBar::tab:selected {
+    background: #ffffff;
+    color: #126be8;
+}

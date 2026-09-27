@@ -1,0 +1,5 @@
+{
+  "DO01": "Gripper_Open",
+  "DO02": "Gripper_Close",
+  "DI01": "Grip_OK"
+}

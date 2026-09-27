@@ -1,0 +1,9 @@
+{
+  "model": "MG400",
+  "mode": "Simulation",
+  "ip": "192.168.1.6",
+  "dashboard_port": 29999,
+  "move_port": 30003,
+  "feedback_port": 30004,
+  "timeout_s": 1.5
+}

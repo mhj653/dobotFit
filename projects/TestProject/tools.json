@@ -1,0 +1,7 @@
+{
+  "soft_gripper": {
+    "open_output": "DO01",
+    "close_output": "DO02",
+    "sensor_input": "DI01"
+  }
+}

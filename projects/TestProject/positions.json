@@ -1,0 +1,86 @@
+[
+  {
+    "name": "HOME",
+    "pose": {
+      "x": 300.0,
+      "y": 0.0,
+      "z": 250.0,
+      "r": 0.0
+    },
+    "motion_type": "MoveJ",
+    "speed": 20.0,
+    "acceleration": 50.0,
+    "approach_offset": 0.0,
+    "comment": "Default home"
+  },
+  {
+    "name": "PICK_APPROACH",
+    "pose": {
+      "x": 350.0,
+      "y": 100.0,
+      "z": 180.0,
+      "r": 90.0
+    },
+    "motion_type": "MoveJ",
+    "speed": 20.0,
+    "acceleration": 50.0,
+    "approach_offset": 0.0,
+    "comment": "Pick approach"
+  },
+  {
+    "name": "PICK",
+    "pose": {
+      "x": 350.0,
+      "y": 100.0,
+      "z": 120.0,
+      "r": 90.0
+    },
+    "motion_type": "MoveL",
+    "speed": 20.0,
+    "acceleration": 50.0,
+    "approach_offset": 0.0,
+    "comment": "Pick position"
+  },
+  {
+    "name": "CAMERA",
+    "pose": {
+      "x": 320.0,
+      "y": 50.0,
+      "z": 200.0,
+      "r": 90.0
+    },
+    "motion_type": "MoveJ",
+    "speed": 20.0,
+    "acceleration": 50.0,
+    "approach_offset": 0.0,
+    "comment": "Camera position"
+  },
+  {
+    "name": "PLACE",
+    "pose": {
+      "x": 250.0,
+      "y": -80.0,
+      "z": 150.0,
+      "r": -90.0
+    },
+    "motion_type": "MoveJ",
+    "speed": 20.0,
+    "acceleration": 50.0,
+    "approach_offset": 0.0,
+    "comment": "Place position"
+  },
+  {
+    "name": "INSPECTION",
+    "pose": {
+      "x": 280.0,
+      "y": 120.0,
+      "z": 180.0,
+      "r": 0.0
+    },
+    "motion_type": "MoveJ",
+    "speed": 20.0,
+    "acceleration": 50.0,
+    "approach_offset": 0.0,
+    "comment": "Vision position"
+  }
+]
