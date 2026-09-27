@@ -7,7 +7,7 @@ from PyInstaller.utils.hooks import collect_all
 conda_prefix = os.environ.get('CONDA_PREFIX', sys.prefix)
 conda_bin = os.path.join(conda_prefix, 'Library', 'bin')
 
-datas = [('ui/styles', 'ui/styles')]
+datas = [('ui/styles', 'ui/styles'), ('assets/mg400_description', 'assets/mg400_description')]
 binaries = [
     (os.path.join(conda_bin, 'liblzma.dll'), '.'),
     (os.path.join(conda_bin, 'libbz2.dll'), '.'),

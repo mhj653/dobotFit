@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import math
+import sys
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from core.models import JointState, Pose
@@ -20,6 +23,8 @@ class PyBulletEngine:
             pybullet = None
         self.pybullet = pybullet
         self.client_id: int | None = None
+        self.robot_id: int | None = None
+        self.robot_joint_indices: dict[str, int] = {}
         self.body_ids: list[int] = []
         self.gripper_ids: list[int] = []
         self.vacuum_id: int | None = None
@@ -46,6 +51,8 @@ class PyBulletEngine:
         if self.pybullet is not None and self.client_id is not None:
             self.pybullet.disconnect(self.client_id)
         self.client_id = None
+        self.robot_id = None
+        self.robot_joint_indices = {}
         self.body_ids = []
         self.gripper_ids = []
         self.vacuum_id = None
@@ -61,13 +68,17 @@ class PyBulletEngine:
         plane_shape = p.createCollisionShape(p.GEOM_PLANE, physicsClientId=self.client_id)
         plane_body = p.createMultiBody(baseMass=0, baseCollisionShapeIndex=plane_shape, physicsClientId=self.client_id)
         p.changeDynamics(plane_body, -1, lateralFriction=0.8, physicsClientId=self.client_id)
-        self.body_ids = [
-            self._box((0.19, 0.19, 0.07), (0.32, 0.33, 0.38, 1.0)),
-            self._cylinder(0.065, 0.23, (0.18, 0.22, 0.28, 1.0)),
-            self._box((0.22, 0.058, 0.052), (0.82, 0.86, 0.88, 1.0)),
-            self._box((0.22, 0.052, 0.048), (0.82, 0.86, 0.88, 1.0)),
-            self._box((0.085, 0.040, 0.040), (0.08, 0.12, 0.18, 1.0)),
-        ]
+        self.robot_id = self._load_mg400_urdf()
+        if self.robot_id is None:
+            self.body_ids = [
+                self._box((0.19, 0.19, 0.07), (0.32, 0.33, 0.38, 1.0)),
+                self._cylinder(0.065, 0.23, (0.18, 0.22, 0.28, 1.0)),
+                self._box((0.22, 0.058, 0.052), (0.82, 0.86, 0.88, 1.0)),
+                self._box((0.22, 0.052, 0.048), (0.82, 0.86, 0.88, 1.0)),
+                self._box((0.085, 0.040, 0.040), (0.08, 0.12, 0.18, 1.0)),
+            ]
+        else:
+            self.body_ids = []
         self.gripper_ids = [
             self._box((0.012, 0.012, 0.070), (0.05, 0.08, 0.12, 1.0)),
             self._box((0.012, 0.012, 0.070), (0.05, 0.08, 0.12, 1.0)),
@@ -136,10 +147,13 @@ class PyBulletEngine:
         p = self.pybullet
         tool_profile = tool_profile or self.tool_profile
         points = self._link_points(pose, joints)
-        p.resetBasePositionAndOrientation(self.body_ids[0], [0, 0, 0.04], [0, 0, 0, 1], physicsClientId=self.client_id)
-        p.resetBasePositionAndOrientation(self.body_ids[1], [0, 0, 0.13], [0, 0, 0, 1], physicsClientId=self.client_id)
-        for body, start, end in zip(self.body_ids[2:], points[:-1], points[1:]):
-            self._place_link(body, start, end)
+        if self.robot_id is not None:
+            self._sync_urdf_robot(pose)
+        elif self.body_ids:
+            p.resetBasePositionAndOrientation(self.body_ids[0], [0, 0, 0.04], [0, 0, 0, 1], physicsClientId=self.client_id)
+            p.resetBasePositionAndOrientation(self.body_ids[1], [0, 0, 0.13], [0, 0, 0, 1], physicsClientId=self.client_id)
+            for body, start, end in zip(self.body_ids[2:], points[:-1], points[1:]):
+                self._place_link(body, start, end)
         tool = points[-1]
         tool_yaw = math.radians(pose.r)
         finger_axis = (-math.sin(tool_yaw), math.cos(tool_yaw), 0.0)
@@ -199,7 +213,12 @@ class PyBulletEngine:
             p.stepSimulation(physicsClientId=self.client_id)
 
     def object_count(self) -> int:
-        return len(self.body_ids) + len(self.gripper_ids) + (1 if self.vacuum_id is not None else 0) + len(self.object_body_ids)
+        robot_count = 1 if self.robot_id is not None else len(self.body_ids)
+        return robot_count + len(self.gripper_ids) + (1 if self.vacuum_id is not None else 0) + len(self.object_body_ids)
+
+    @property
+    def uses_urdf_model(self) -> bool:
+        return self.robot_id is not None
 
     def _camera_config(self) -> tuple[list[float], list[float], list[float], float]:
         if self.camera_view == "Top":
@@ -238,6 +257,83 @@ class PyBulletEngine:
         visual = p.createVisualShape(p.GEOM_CYLINDER, radius=radius, length=height, rgbaColor=rgba, physicsClientId=self.client_id)
         collision = p.createCollisionShape(p.GEOM_CYLINDER, radius=radius, height=height, physicsClientId=self.client_id)
         return p.createMultiBody(baseMass=0, baseCollisionShapeIndex=collision, baseVisualShapeIndex=visual, physicsClientId=self.client_id)
+
+    def _load_mg400_urdf(self) -> int | None:
+        p = self.pybullet
+        assert p is not None and self.client_id is not None
+        source = self._mg400_urdf_path()
+        if source is None:
+            return None
+        patched = self._patched_urdf_path(source)
+        try:
+            robot_id = p.loadURDF(
+                str(patched),
+                basePosition=[0, 0, 0],
+                baseOrientation=p.getQuaternionFromEuler([0, 0, 0]),
+                useFixedBase=True,
+                flags=p.URDF_USE_INERTIA_FROM_FILE,
+                physicsClientId=self.client_id,
+            )
+        except Exception:
+            return None
+        self.robot_joint_indices = {}
+        for index in range(p.getNumJoints(robot_id, physicsClientId=self.client_id)):
+            info = p.getJointInfo(robot_id, index, physicsClientId=self.client_id)
+            self.robot_joint_indices[info[1].decode("utf-8")] = index
+        return robot_id
+
+    def _mg400_urdf_path(self) -> Path | None:
+        base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
+        candidates = [
+            base / "assets" / "mg400_description" / "urdf" / "mg400_description.urdf",
+            Path(__file__).resolve().parents[1] / "assets" / "mg400_description" / "urdf" / "mg400_description.urdf",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _patched_urdf_path(self, source: Path) -> Path:
+        asset_root = source.parents[1]
+        cache_dir = Path(tempfile.gettempdir()) / "robot_automation_studio"
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        target = cache_dir / "mg400_description_pybullet.urdf"
+        text = source.read_text(encoding="utf-8")
+        text = text.replace("package://mg400_description/", asset_root.as_posix() + "/")
+        target.write_text(text, encoding="utf-8")
+        return target
+
+    def _sync_urdf_robot(self, pose: Pose) -> None:
+        p = self.pybullet
+        assert p is not None and self.client_id is not None and self.robot_id is not None
+        targets = self._urdf_joint_targets(pose)
+        for name, value in targets.items():
+            index = self.robot_joint_indices.get(name)
+            if index is not None:
+                p.resetJointState(self.robot_id, index, value, physicsClientId=self.client_id)
+
+    def _urdf_joint_targets(self, pose: Pose) -> dict[str, float]:
+        radius = math.hypot(pose.x, pose.y)
+        yaw = math.atan2(pose.y, pose.x)
+        reach_t = self._clamp((radius - 80.0) / 360.0, 0.0, 1.0)
+        height_t = self._clamp((pose.z - 5.0) / 395.0, 0.0, 1.0)
+
+        shoulder = self._clamp(1.18 - reach_t * 0.92 + (height_t - 0.55) * 0.28, -0.14, 1.39)
+        elbow = self._clamp(0.18 + reach_t * 0.82 + (0.50 - height_t) * 0.18, 0.0, 1.39)
+        wrist_pitch = self._clamp(elbow, -math.pi, math.pi)
+        wrist_roll = self._clamp(math.radians(pose.r), -math.pi, math.pi)
+
+        return {
+            "j1": yaw,
+            "j2": shoulder,
+            "j2_2": shoulder,
+            "j3": elbow,
+            "j3_1": -shoulder,
+            "j3_2": -shoulder,
+            "j4_1": -wrist_pitch,
+            "j4_2": wrist_pitch,
+            "j4": wrist_roll,
+        }
 
     def _scene_body(self, item: "SimulationObject") -> int:
         p = self.pybullet
@@ -297,3 +393,6 @@ class PyBulletEngine:
 
     def _link_points(self, pose: Pose, joints: JointState) -> list[tuple[float, float, float]]:
         return self.kinematics.link_points_m(pose, joints)
+
+    def _clamp(self, value: float, low: float, high: float) -> float:
+        return max(low, min(high, value))

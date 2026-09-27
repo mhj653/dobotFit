@@ -47,6 +47,7 @@ class SimulationModelTests(unittest.TestCase):
             self.assertTrue(engine.connect_direct())
             self.assertTrue(engine.initialize_scene())
             self.assertGreater(engine.object_count(), 0)
+            self.assertTrue(engine.uses_urdf_model)
             frame = engine.render_camera(96, 72)
             self.assertIsNotNone(frame)
             assert frame is not None
