@@ -19,8 +19,8 @@ class ProjectManagerTests(unittest.TestCase):
             loaded = manager.load()
             self.assertEqual(loaded["positions"][0].name, "HOME")
             self.assertEqual(loaded["sequence"][0].command, "MoveJ")
+            self.assertEqual(loaded["tools"]["soft_gripper"]["open_output"], 1)
 
 
 if __name__ == "__main__":
     unittest.main()
-

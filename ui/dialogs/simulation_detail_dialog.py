@@ -610,8 +610,12 @@ class SimulationDetailDialog(QDialog):
             self._refresh_teach_pose()
             self._syncing_detail = False
             warnings = list(dict.fromkeys([*snapshot.warnings, *self.devices.simulation_warnings_for_pose(self.page._target_pose())]))
-            self.warning_label.setText("\n".join(warnings) if warnings else "No simulation warnings for the current target.")
-            self.preview_status.setText(" | ".join(warnings) if warnings else "Ready")
+            motion = getattr(snapshot, "motion", None)
+            motion_text = ""
+            if motion is not None and motion.duration_s > 0:
+                motion_text = f"Estimated {motion.duration_s:.2f} s / {motion.profile_type} / peak {motion.peak_speed_mms:.0f} mm/s"
+            self.warning_label.setText("\n".join([motion_text, *warnings]) if warnings or motion_text else "No simulation warnings for the current target.")
+            self.preview_status.setText(" | ".join([motion_text, *warnings]) if warnings or motion_text else "Ready")
             self.page._apply_snapshot(snapshot)
 
     def _set_preview_view(self, name: str) -> None:

@@ -204,6 +204,8 @@ class MainWindow(QMainWindow):
     def load_project(self) -> None:
         data = self.project_manager.load()
         self.settings_page.load_robot_config(data["robot"])
+        self.devices.load_gripper_config(data.get("tools", {}).get("soft_gripper"))
+        self.settings_page.load_gripper_config(self.devices.gripper_io)
         self.positions = data["positions"]
         self.sequence = data["sequence"]
         self.devices.io.alias = data["io_mapping"]
@@ -231,6 +233,7 @@ class MainWindow(QMainWindow):
             self.sequence,
             self.devices.io.alias,
             robot_config,
+            self.devices.gripper_config_dict(),
             self.vision_profiles,
             self.calibration_profiles,
         )

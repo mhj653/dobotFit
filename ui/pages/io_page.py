@@ -11,6 +11,9 @@ class IOPage(QWidget):
         self.devices = devices
         self.di_checks: dict[int, QCheckBox] = {}
         self.do_checks: dict[int, QCheckBox] = {}
+        self.gripper_open_label = QLabel()
+        self.gripper_close_label = QLabel()
+        self.gripper_sensor_label = QLabel()
         layout = QGridLayout(self)
         layout.addWidget(self._io_box("Digital Input (DI)", True), 0, 0)
         layout.addWidget(self._io_box("Digital Output (DO)", False), 0, 1)
@@ -37,9 +40,9 @@ class IOPage(QWidget):
         layout = QVBoxLayout(box)
         layout.addWidget(QLabel("Model: DOBOT Soft Gripper Kit 1"))
         layout.addWidget(QLabel("Fingers: 4-Finger"))
-        layout.addWidget(QLabel("OPEN: DO01"))
-        layout.addWidget(QLabel("CLOSE: DO02"))
-        layout.addWidget(QLabel("Sensor: DI01"))
+        layout.addWidget(self.gripper_open_label)
+        layout.addWidget(self.gripper_close_label)
+        layout.addWidget(self.gripper_sensor_label)
         open_button = QPushButton("Open")
         close_button = QPushButton("Close")
         open_button.clicked.connect(self.devices.gripper_open)
@@ -50,12 +53,17 @@ class IOPage(QWidget):
         return box
 
     def refresh(self) -> None:
+        cfg = self.devices.gripper_io
+        self.gripper_open_label.setText(f"OPEN: {cfg.open_label}")
+        self.gripper_close_label.setText(f"CLOSE: {cfg.close_label}")
+        self.gripper_sensor_label.setText(f"Sensor: {cfg.sensor_label}")
         for channel, check in self.di_checks.items():
             check.blockSignals(True)
             check.setChecked(self.devices.io.di[channel])
+            check.setEnabled(self.devices.mode != "REAL")
             check.blockSignals(False)
         for channel, check in self.do_checks.items():
             check.blockSignals(True)
             check.setChecked(self.devices.io.do[channel])
+            check.setEnabled(True)
             check.blockSignals(False)
-

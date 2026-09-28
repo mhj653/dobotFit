@@ -6,6 +6,7 @@ import numpy as np
 
 from core.models import Result
 from drivers.camera.base import CalibrationConfig, CameraFrame, CheckerboardConfig, DetectionConfig, VisionResult
+from drivers.vision.yolo_detector import YoloDetection, YoloSegDetector
 
 
 class RealSenseD405Camera:
@@ -37,7 +38,8 @@ class RealSenseD405Camera:
         self._last_processed: np.ndarray | None = None
         self.detection_config = DetectionConfig()
         self.calibration = CalibrationConfig.identity()
-        self._detectors = {"Blob": self._detect_blob}
+        self._yolo_detector = YoloSegDetector()
+        self._detectors = {"Blob": self._detect_blob, "YOLO Segmentation": self._detect_yolo_segmentation}
 
     def configure_detection(self, config: DetectionConfig) -> None:
         self.detection_config = config
@@ -158,6 +160,7 @@ class RealSenseD405Camera:
             py = int(selected_pixel[1])
             score = float(selected_pixel[2])
             method_message = selected_pixel[3]
+            object_rz = self._normalize_rz(float(selected_pixel[4]) + float(self.detection_config.angle_offset_deg))
         valid_mask = self._last_depth > 0
         x0, y0, x1, y1 = roi_x, roi_y, roi_x + roi_w, roi_y + roi_h
         if not valid_mask.any():
@@ -190,7 +193,7 @@ class RealSenseD405Camera:
             robot_x,
             robot_y,
             robot_z,
-            0.0,
+            object_rz,
             score=score,
             pixel_u=float(px),
             pixel_v=float(py),
@@ -326,22 +329,22 @@ class RealSenseD405Camera:
             int(depth_py),
         )
 
-    def _detect_pixel_in_roi(self, roi_x: int, roi_y: int, roi_w: int, roi_h: int) -> tuple[int | None, int | None, float, str]:
+    def _detect_pixel_in_roi(self, roi_x: int, roi_y: int, roi_w: int, roi_h: int) -> tuple[int | None, int | None, float, str, float]:
         method = self.detection_config.method
         if self._last_color is None:
-            return None, None, 0.0, "No RGB frame for vision detection"
+            return None, None, 0.0, "No RGB frame for vision detection", 0.0
         try:
             import cv2  # type: ignore
         except Exception as exc:
-            return None, None, 0.0, f"OpenCV is not available: {exc}"
+            return None, None, 0.0, f"OpenCV is not available: {exc}", 0.0
         roi = self._last_color[roi_y : roi_y + roi_h, roi_x : roi_x + roi_w]
         gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
         detector = self._detectors.get(method)
         if detector is not None:
             return detector(cv2, gray, roi_x, roi_y)
-        return None, None, 0.0, f"Unsupported detection method: {method}"
+        return None, None, 0.0, f"Unsupported detection method: {method}", 0.0
 
-    def _detect_blob(self, cv2: Any, gray: np.ndarray, roi_x: int, roi_y: int) -> tuple[int | None, int | None, float, str]:
+    def _detect_blob(self, cv2: Any, gray: np.ndarray, roi_x: int, roi_y: int) -> tuple[int | None, int | None, float, str, float]:
         threshold = int(max(0, min(255, self.detection_config.threshold * 255.0)))
         blur_kernel = max(0, int(self.detection_config.blur_kernel))
         if blur_kernel >= 3:
@@ -360,7 +363,7 @@ class RealSenseD405Camera:
         kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
         open_iterations = max(0, int(self.detection_config.open_iterations))
         close_iterations = max(0, int(self.detection_config.close_iterations))
-        candidates: list[tuple[float, float, float, float, np.ndarray]] = []
+        candidates: list[tuple[float, float, float, float, float, np.ndarray]] = []
         binary_preview: np.ndarray | None = None
         result_preview = self._last_color.copy() if self._last_color is not None else cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
         for mode in modes:
@@ -385,7 +388,8 @@ class RealSenseD405Camera:
                     continue
                 px = float(moments["m10"] / moments["m00"]) + roi_x
                 py = float(moments["m01"] / moments["m00"]) + roi_y
-                candidates.append((area, px, py, circularity, binary.copy()))
+                angle = self._contour_angle_deg(cv2, contour)
+                candidates.append((area, px, py, circularity, angle, binary.copy()))
                 shifted = (contour + np.array([[[roi_x, roi_y]]], dtype=contour.dtype)).astype(np.int32)
                 cv2.drawContours(result_preview, [shifted], -1, (34, 197, 94), 2)
         if binary_preview is None:
@@ -394,14 +398,89 @@ class RealSenseD405Camera:
         self._last_processed = result_preview
         if not candidates:
             self._last_preprocessed = self._compose_roi_preview(cv2.cvtColor(binary_preview, cv2.COLOR_GRAY2RGB), roi_x, roi_y)
-            return None, None, 0.0, "Blob not found in ROI"
-        area, px, py, circularity, selected_binary = max(candidates, key=lambda item: item[0])
+            return None, None, 0.0, "Blob not found in ROI", 0.0
+        area, px, py, circularity, angle, selected_binary = max(candidates, key=lambda item: item[0])
         self._last_preprocessed = self._compose_roi_preview(cv2.cvtColor(selected_binary, cv2.COLOR_GRAY2RGB), roi_x, roi_y)
         cv2.drawMarker(result_preview, (int(round(px)), int(round(py))), (239, 68, 68), cv2.MARKER_CROSS, 18, 2)
+        self._draw_angle_axis(cv2, result_preview, int(round(px)), int(round(py)), angle)
         self._last_result = result_preview
         self._last_processed = result_preview
         score = min(1.0, area / max(self.detection_config.max_area, 1.0))
-        return int(round(px)), int(round(py)), score, f"Blob locate complete (area {area:.1f}, circularity {circularity:.2f})"
+        return int(round(px)), int(round(py)), score, f"Blob locate complete (area {area:.1f}, circularity {circularity:.2f}, RZ {angle:.1f})", angle
+
+    def _detect_yolo_segmentation(self, cv2: Any, gray: np.ndarray, roi_x: int, roi_y: int) -> tuple[int | None, int | None, float, str, float]:
+        if self._last_color is None:
+            return None, None, 0.0, "No RGB frame for YOLO detection", 0.0
+        roi_h, roi_w = gray.shape[:2]
+        roi_image = self._last_color[roi_y : roi_y + roi_h, roi_x : roi_x + roi_w]
+        detections = self._yolo_detector.detect(
+            roi_image,
+            self.detection_config.yolo_model_path,
+            self.detection_config.threshold,
+            self.detection_config.yolo_class_filter,
+        )
+        detections = [
+            detection
+            for detection in detections
+            if self.detection_config.min_area <= detection.area <= self.detection_config.max_area
+        ]
+        if not detections:
+            self._last_preprocessed = self._last_color.copy()
+            self._last_result = self._last_color.copy()
+            self._last_processed = self._last_result
+            error = self._yolo_detector.load_error or "YOLO object not found in ROI"
+            return None, None, 0.0, error, 0.0
+
+        selected = self._select_yolo_detection(detections)
+        result_preview = self._last_color.copy()
+        roi_overlay = self._yolo_detector.draw_overlay(roi_image, detections, selected)
+        result_preview[roi_y : roi_y + roi_h, roi_x : roi_x + roi_w] = roi_overlay
+
+        preprocessed = self._last_color.copy()
+        if selected.mask is not None:
+            mask_rgb = np.stack([(selected.mask > 0).astype(np.uint8) * 255] * 3, axis=2)
+            preprocessed[roi_y : roi_y + roi_h, roi_x : roi_x + roi_w] = mask_rgb
+        else:
+            preprocessed[roi_y : roi_y + roi_h, roi_x : roi_x + roi_w] = roi_overlay
+
+        center_x = selected.center_px[0] + roi_x
+        center_y = selected.center_px[1] + roi_y
+        self._draw_angle_axis(cv2, result_preview, int(round(center_x)), int(round(center_y)), selected.angle_deg)
+        self._last_preprocessed = preprocessed
+        self._last_result = result_preview
+        self._last_processed = result_preview
+        return (
+            int(round(center_x)),
+            int(round(center_y)),
+            float(selected.confidence),
+            f"YOLO locate complete ({selected.class_name}, conf {selected.confidence:.2f}, RZ {selected.angle_deg:.1f})",
+            float(selected.angle_deg),
+        )
+
+    def _select_yolo_detection(self, detections: list[YoloDetection]) -> YoloDetection:
+        return max(detections, key=lambda detection: (detection.confidence, detection.area))
+
+    def _contour_angle_deg(self, cv2: Any, contour: np.ndarray) -> float:
+        rect = cv2.minAreaRect(contour)
+        (_center_x, _center_y), (width, height), raw_angle = rect
+        angle = float(raw_angle)
+        if width < height:
+            angle += 90.0
+        return self._normalize_rz(angle)
+
+    def _draw_angle_axis(self, cv2: Any, image: np.ndarray, cx: int, cy: int, angle_deg: float) -> None:
+        radians = np.deg2rad(angle_deg)
+        length = 34
+        dx = int(round(np.cos(radians) * length))
+        dy = int(round(np.sin(radians) * length))
+        cv2.line(image, (cx - dx, cy - dy), (cx + dx, cy + dy), (250, 204, 21), 2)
+
+    def _normalize_rz(self, angle: float) -> float:
+        while angle > 180.0:
+            angle -= 360.0
+        while angle <= -180.0:
+            angle += 360.0
+        return angle
 
     def processed_preview_frame(self) -> CameraFrame | None:
         return self.result_preview_frame()

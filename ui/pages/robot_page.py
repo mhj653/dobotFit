@@ -330,7 +330,12 @@ class RobotPage(QWidget):
             snapshot.render_height,
             snapshot.render_rgba,
         )
-        self.sim_warning_label.setText(" | ".join(snapshot.warnings) if snapshot.warnings else "")
+        motion = getattr(snapshot, "motion", None)
+        motion_text = ""
+        if motion is not None and motion.duration_s > 0:
+            motion_text = f"Estimated {motion.duration_s:.2f} s, {motion.profile_type}, peak {motion.peak_speed_mms:.0f} mm/s"
+        warning_text = " | ".join(snapshot.warnings) if snapshot.warnings else ""
+        self.sim_warning_label.setText(" | ".join(text for text in [motion_text, warning_text] if text))
         for name, value in zip(["X", "Y", "Z", "R"], [snapshot.pose.x, snapshot.pose.y, snapshot.pose.z, snapshot.pose.r]):
             self.current_labels[name].setText(f"{value:.3f}")
         for name, value in zip(["J1", "J2", "J3", "J4"], [snapshot.joints.j1, snapshot.joints.j2, snapshot.joints.j3, snapshot.joints.j4]):

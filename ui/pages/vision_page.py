@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QTextBrowser,
@@ -43,6 +44,7 @@ from core.vision_profiles import (
     profile_names,
     replace_profile,
 )
+from core.vision_model_manager import import_yolo_model, launch_training_tool
 from drivers.camera.base import CalibrationConfig, CheckerboardConfig, DetectionConfig, detection_to_variables
 from ui.widgets.image_view import ImageView
 from ui.pages.vision_manuals import calibration_manual_html
@@ -59,6 +61,17 @@ DETECTION_ALGORITHMS = {
             "open_iterations",
             "close_iterations",
             "min_circularity",
+        ),
+    },
+    "YOLO Segmentation": {
+        "parameters": (
+            "threshold",
+            "yolo_model_path",
+            "yolo_actions",
+            "yolo_class_filter",
+            "min_area",
+            "max_area",
+            "angle_offset",
         ),
     },
 }
@@ -207,12 +220,12 @@ class VisionPage(QWidget):
         self.blob_polarity.setFixedWidth(86)
         self.blob_polarity.addItems(["Auto", "Bright", "Dark"])
         self.polarity_label = QLabel("Polarity")
-        test_detect = QPushButton("Locate")
-        test_detect.setToolTip("Test Locate")
-        test_detect.setProperty("vision", "true")
-        test_detect.setProperty("class", "primary")
-        test_detect.clicked.connect(self._detect)
-        test_detect.setFixedWidth(96)
+        self.locate_button = QPushButton("Locate")
+        self.locate_button.setToolTip("Test Locate")
+        self.locate_button.setProperty("vision", "true")
+        self.locate_button.setProperty("class", "primary")
+        self.locate_button.clicked.connect(self._detect)
+        self.locate_button.setFixedWidth(96)
         method_row = QWidget()
         method_layout = QHBoxLayout(method_row)
         method_layout.setContentsMargins(0, 0, 0, 0)
@@ -224,7 +237,7 @@ class VisionPage(QWidget):
             method_layout.addWidget(self.method_label, 1)
         method_layout.addWidget(self.polarity_label)
         method_layout.addWidget(self.blob_polarity)
-        method_layout.addWidget(test_detect)
+        method_layout.addWidget(self.locate_button)
         self.threshold_row, self.threshold, self.threshold_slider = self._slider_spin_control(0.0, 255.0, 140.0, 1.0, 0)
         self.min_area_row, self.min_area, self.min_area_slider = self._slider_spin_control(1.0, 50000.0, 80.0, 10.0, 0)
         self.max_area_row, self.max_area, self.max_area_slider = self._slider_spin_control(1.0, 307200.0, 20000.0, 100.0, 0)
@@ -232,6 +245,39 @@ class VisionPage(QWidget):
         self.open_iterations_row, self.open_iterations, self.open_iterations_slider = self._slider_spin_control(0.0, 5.0, 0.0, 1.0, 0)
         self.close_iterations_row, self.close_iterations, self.close_iterations_slider = self._slider_spin_control(0.0, 5.0, 0.0, 1.0, 0)
         self.min_circularity_row, self.min_circularity, self.min_circularity_slider = self._slider_spin_control(0.0, 1.0, 0.0, 0.01, 2, slider_scale=100)
+        self.angle_offset_row, self.angle_offset, self.angle_offset_slider = self._slider_spin_control(-180.0, 180.0, 0.0, 1.0, 1, slider_scale=10)
+        self.yolo_model_path_row = QWidget()
+        yolo_model_layout = QHBoxLayout(self.yolo_model_path_row)
+        yolo_model_layout.setContentsMargins(0, 0, 0, 0)
+        yolo_model_layout.setSpacing(6)
+        self.yolo_model_path = QLineEdit()
+        self.yolo_model_path.setPlaceholderText("Select .pt/.onnx model")
+        self.yolo_model_path.textChanged.connect(self._on_detection_setup_changed)
+        yolo_browse = QPushButton("Browse")
+        yolo_browse.setFixedWidth(76)
+        yolo_browse.clicked.connect(self._browse_yolo_model)
+        yolo_model_layout.addWidget(self.yolo_model_path, 1)
+        yolo_model_layout.addWidget(yolo_browse)
+        self.yolo_actions_row = QWidget()
+        yolo_actions_layout = QHBoxLayout(self.yolo_actions_row)
+        yolo_actions_layout.setContentsMargins(0, 0, 0, 0)
+        yolo_actions_layout.setSpacing(6)
+        self.open_training_button = QPushButton("Training Tool")
+        self.import_model_button = QPushButton("Import Model")
+        self.test_model_button = QPushButton("Test Model")
+        self.open_training_button.setToolTip("Open YoloTrainingUtility.exe")
+        self.import_model_button.setToolTip("Copy a .pt/.onnx model into the RobotAutomationStudio models folder")
+        self.test_model_button.setToolTip("Run YOLO detection with the selected model")
+        self.open_training_button.clicked.connect(self._open_training_tool)
+        self.import_model_button.clicked.connect(self._import_yolo_model)
+        self.test_model_button.clicked.connect(self._test_yolo_model)
+        for button in [self.open_training_button, self.import_model_button, self.test_model_button]:
+            button.setProperty("vision", "true")
+            button.setMinimumWidth(0)
+            yolo_actions_layout.addWidget(button, 1)
+        self.yolo_class_filter = QLineEdit()
+        self.yolo_class_filter.setPlaceholderText("optional: class name or id")
+        self.yolo_class_filter.textChanged.connect(self._on_detection_setup_changed)
         self.threshold_label = QLabel("Threshold")
         self.min_area_label = QLabel("Min Area")
         self.max_area_label = QLabel("Max Area")
@@ -239,7 +285,14 @@ class VisionPage(QWidget):
         self.open_iterations_label = QLabel("Open")
         self.close_iterations_label = QLabel("Close")
         self.min_circularity_label = QLabel("Circularity")
+        self.yolo_model_path_label = QLabel("Model")
+        self.yolo_actions_label = QLabel("YOLO")
+        self.yolo_class_filter_label = QLabel("Class")
+        self.angle_offset_label = QLabel("Angle Offset")
         form.addRow("Method", method_row)
+        form.addRow(self.yolo_model_path_label, self.yolo_model_path_row)
+        form.addRow(self.yolo_actions_label, self.yolo_actions_row)
+        form.addRow(self.yolo_class_filter_label, self.yolo_class_filter)
         form.addRow(self.threshold_label, self.threshold_row)
         form.addRow(self.min_area_label, self.min_area_row)
         form.addRow(self.max_area_label, self.max_area_row)
@@ -247,15 +300,20 @@ class VisionPage(QWidget):
         form.addRow(self.open_iterations_label, self.open_iterations_row)
         form.addRow(self.close_iterations_label, self.close_iterations_row)
         form.addRow(self.min_circularity_label, self.min_circularity_row)
+        form.addRow(self.angle_offset_label, self.angle_offset_row)
         self.detection_parameter_widgets = {
             "threshold": [self.threshold_label, self.threshold_row],
             "polarity": [self.polarity_label, self.blob_polarity],
+            "yolo_model_path": [self.yolo_model_path_label, self.yolo_model_path_row],
+            "yolo_actions": [self.yolo_actions_label, self.yolo_actions_row],
+            "yolo_class_filter": [self.yolo_class_filter_label, self.yolo_class_filter],
             "min_area": [self.min_area_label, self.min_area_row],
             "max_area": [self.max_area_label, self.max_area_row],
             "blur_kernel": [self.blur_kernel_label, self.blur_kernel_row],
             "open_iterations": [self.open_iterations_label, self.open_iterations_row],
             "close_iterations": [self.close_iterations_label, self.close_iterations_row],
             "min_circularity": [self.min_circularity_label, self.min_circularity_row],
+            "angle_offset": [self.angle_offset_label, self.angle_offset_row],
         }
 
         self.roi_x = self._spin(0.0, 100.0, 35.0, 1.0)
@@ -274,6 +332,7 @@ class VisionPage(QWidget):
         self.open_iterations.valueChanged.connect(self._on_detection_setup_changed)
         self.close_iterations.valueChanged.connect(self._on_detection_setup_changed)
         self.min_circularity.valueChanged.connect(self._on_detection_setup_changed)
+        self.angle_offset.valueChanged.connect(self._on_detection_setup_changed)
         setup_layout.addWidget(test_box)
         setup_layout.addWidget(detection)
         setup_layout.addWidget(self._result_box())
@@ -552,6 +611,7 @@ class VisionPage(QWidget):
             ("vision_x", "Robot X"),
             ("vision_y", "Robot Y"),
             ("vision_z", "Robot Z"),
+            ("vision_r", "Robot RZ"),
             ("vision_camera_x_mm", "Cam X"),
             ("vision_camera_y_mm", "Cam Y"),
             ("vision_camera_z_mm", "Cam Z"),
@@ -620,6 +680,72 @@ class VisionPage(QWidget):
         layout.addWidget(slider, 1)
         layout.addWidget(spin)
         return row, spin, slider
+
+    def _browse_yolo_model(self) -> None:
+        default_path = str(Path.cwd())
+        current = self.yolo_model_path.text().strip()
+        if current:
+            default_path = str(Path(current).parent)
+        path, _ = QFileDialog.getOpenFileName(self, "Select YOLO Model", default_path, "YOLO Models (*.pt *.onnx);;All Files (*.*)")
+        if not path:
+            return
+        self.yolo_model_path.setText(path)
+        self.status.setText(f"YOLO model selected: {path}")
+
+    def _open_training_tool(self) -> None:
+        try:
+            executable = launch_training_tool()
+        except FileNotFoundError as exc:
+            QMessageBox.warning(self, "Open Training Tool", str(exc))
+            self.status.setText(str(exc))
+            return
+        self.status.setText(f"Training tool opened: {executable}")
+
+    def _import_yolo_model(self) -> None:
+        default_path = str(Path.cwd())
+        current = self.yolo_model_path.text().strip()
+        if current:
+            default_path = str(Path(current).parent)
+        path, _ = QFileDialog.getOpenFileName(self, "Import YOLO Model", default_path, "YOLO Models (*.pt *.onnx);;All Files (*.*)")
+        if not path:
+            return
+        overwrite = False
+        try:
+            imported = import_yolo_model(path, overwrite=False)
+        except FileExistsError as exc:
+            result = QMessageBox.question(
+                self,
+                "Import YOLO Model",
+                f"{exc}\nOverwrite it?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if result != QMessageBox.StandardButton.Yes:
+                self.status.setText("YOLO model import canceled")
+                return
+            overwrite = True
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Import YOLO Model", str(exc))
+            self.status.setText(f"YOLO model import failed: {exc}")
+            return
+        if overwrite:
+            try:
+                imported = import_yolo_model(path, overwrite=True)
+            except (OSError, ValueError) as exc:
+                QMessageBox.warning(self, "Import YOLO Model", str(exc))
+                self.status.setText(f"YOLO model import failed: {exc}")
+                return
+        self.method_combo.setCurrentText("YOLO Segmentation")
+        self.yolo_model_path.setText(str(imported))
+        self._save_current_vision_profile(silent=True)
+        self.status.setText(f"YOLO model imported: {imported}")
+
+    def _test_yolo_model(self) -> None:
+        if not self.yolo_model_path.text().strip():
+            QMessageBox.information(self, "Test Model", "Import or select a YOLO model first.")
+            return
+        self.method_combo.setCurrentText("YOLO Segmentation")
+        self._detect()
 
     def _toggle_realsense(self, checked: bool) -> None:
         if checked:
@@ -692,6 +818,9 @@ class VisionPage(QWidget):
             open_iterations=int(self.open_iterations.value()),
             close_iterations=int(self.close_iterations.value()),
             min_circularity=self.min_circularity.value(),
+            yolo_model_path=self.yolo_model_path.text().strip(),
+            yolo_class_filter=self.yolo_class_filter.text().strip(),
+            angle_offset_deg=self.angle_offset.value(),
         )
         configure = getattr(self.devices.camera2d, "configure_detection", None)
         if callable(configure):
@@ -809,9 +938,10 @@ class VisionPage(QWidget):
         x = values.get("vision_x", 0.0)
         y = values.get("vision_y", 0.0)
         z = values.get("vision_z", 0.0)
+        rz = values.get("vision_r", values.get("vision_rz", 0.0))
         self.test_summary.setText(
             f"Result: {'OK' if ok else 'NG'} | score {float(score):.3f} | pixel ({float(pixel_u):.1f}, {float(pixel_v):.1f}) | "
-            f"depth {float(depth):.1f} mm | robot ({float(x):.1f}, {float(y):.1f}, {float(z):.1f})"
+            f"depth {float(depth):.1f} mm | robot ({float(x):.1f}, {float(y):.1f}, {float(z):.1f}, RZ {float(rz):.1f})"
         )
 
     def _toggle_live(self, checked: bool) -> None:
@@ -865,6 +995,10 @@ class VisionPage(QWidget):
     def _sync_detection_controls(self) -> None:
         method = self.method_combo.currentText()
         self.method_label.setText(method)
+        self.threshold_label.setText("Confidence" if method == "YOLO Segmentation" else "Threshold")
+        if hasattr(self, "locate_button"):
+            self.locate_button.setText("Test Model" if method == "YOLO Segmentation" else "Locate")
+            self.locate_button.setToolTip("Run YOLO detection test" if method == "YOLO Segmentation" else "Test Locate")
         visible_parameters = set(DETECTION_ALGORITHMS.get(method, {}).get("parameters", ()))
         for name, widgets in self.detection_parameter_widgets.items():
             visible = name in visible_parameters
@@ -1087,6 +1221,9 @@ class VisionPage(QWidget):
             "open_iterations": self.open_iterations.value(),
             "close_iterations": self.close_iterations.value(),
             "min_circularity": self.min_circularity.value(),
+            "yolo_model_path": self.yolo_model_path.text().strip(),
+            "yolo_class_filter": self.yolo_class_filter.text().strip(),
+            "angle_offset_deg": self.angle_offset.value(),
             "roi": {
                 "x_percent": self.roi_x.value(),
                 "y_percent": self.roi_y.value(),
@@ -1133,6 +1270,9 @@ class VisionPage(QWidget):
         self.open_iterations.setValue(float(detection.get("open_iterations", 0.0)))
         self.close_iterations.setValue(float(detection.get("close_iterations", 0.0)))
         self.min_circularity.setValue(float(detection.get("min_circularity", 0.0)))
+        self.yolo_model_path.setText(str(detection.get("yolo_model_path", "")))
+        self.yolo_class_filter.setText(str(detection.get("yolo_class_filter", "")))
+        self.angle_offset.setValue(float(detection.get("angle_offset_deg", 0.0)))
         self.roi_x.setValue(float(roi.get("x_percent", 35.0)))
         self.roi_y.setValue(float(roi.get("y_percent", 30.0)))
         self.roi_w.setValue(float(roi.get("w_percent", 30.0)))

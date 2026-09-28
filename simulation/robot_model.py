@@ -22,6 +22,16 @@ class WorkspaceLimit:
 
 
 @dataclass
+class MotionProfile:
+    duration_s: float = 0.0
+    distance_mm: float = 0.0
+    peak_speed_mms: float = 0.0
+    command_speed_pct: float = 0.0
+    command_accel_pct: float = 0.0
+    profile_type: str = "Idle"
+
+
+@dataclass
 class SimulationObject:
     name: str
     shape: str = "Box"
@@ -59,6 +69,7 @@ class SimulationSnapshot:
     objects: list[SimulationObject] = field(default_factory=list)
     tool: ToolProfile = field(default_factory=ToolProfile)
     warnings: list[str] = field(default_factory=list)
+    motion: MotionProfile = field(default_factory=MotionProfile)
 
 
 class KinematicMG400Model:
@@ -76,6 +87,7 @@ class KinematicMG400Model:
         self.tool = ToolProfile()
         self.attached_object_index: int | None = None
         self.warnings: list[str] = []
+        self.last_motion = MotionProfile()
         self.pybullet = PyBulletEngine()
         self.backend = "PyBullet" if self.pybullet.initialize_scene() else "Kinematic"
         self.pybullet.configure(self.objects, self.tool)
@@ -85,12 +97,12 @@ class KinematicMG400Model:
         validation = self.validate(target)
         if not validation.success:
             return validation
-        self.last_path = self._build_path(self.pose, target, motion, speed, acceleration)
+        self.last_path, self.last_motion = self._build_path(self.pose, target, motion, speed, acceleration)
         self.warnings = self.check_path(self.last_path)
         self.pose = target
         self.joints = self.estimate_joints(target)
         self._sync_backend()
-        message = f"{motion} simulation complete with {len(self.last_path)} path samples"
+        message = f"{motion} simulation complete in {self.last_motion.duration_s:.2f} s with {len(self.last_path)} path samples"
         if self.warnings:
             message += f" ({len(self.warnings)} simulation warning(s))"
         return Result.ok(message)
@@ -155,6 +167,7 @@ class KinematicMG400Model:
             [SimulationObject(**vars(item)) for item in self.objects],
             ToolProfile(**vars(self.tool)),
             list(self.warnings),
+            MotionProfile(**vars(self.last_motion)),
         )
 
     def validate(self, pose: Pose) -> Result:
@@ -196,12 +209,20 @@ class KinematicMG400Model:
     def forward_kinematics(self, joints: JointState) -> Pose:
         return self.kinematics.forward(joints)
 
-    def _build_path(self, start: Pose, target: Pose, motion: str, speed: float, acceleration: float) -> list[Pose]:
+    def _build_path(self, start: Pose, target: Pose, motion: str, speed: float, acceleration: float) -> tuple[list[Pose], MotionProfile]:
         distance = math.sqrt((target.x - start.x) ** 2 + (target.y - start.y) ** 2 + (target.z - start.z) ** 2)
-        samples = max(8, min(80, int(distance / max(speed, 1.0) * 4 + acceleration / 15)))
+        angular_distance = abs(target.r - start.r) * 1.2
+        effective_distance = max(distance, angular_distance)
+        max_speed = 1000.0 if motion in {"MoveL", "Jog"} else 720.0
+        max_accel = 2200.0 if motion in {"MoveL", "Jog"} else 1600.0
+        speed_mms = max(10.0, max_speed * max(1.0, min(100.0, speed)) / 100.0)
+        accel_mms2 = max(50.0, max_accel * max(1.0, min(100.0, acceleration)) / 100.0)
+        duration, peak_speed, profile_type = self._motion_duration(effective_distance, speed_mms, accel_mms2)
+        samples = max(12, min(160, int(duration * 30.0) + 1))
         path = []
         for index in range(samples + 1):
-            t = index / samples
+            elapsed = duration * index / samples if samples else duration
+            t = self._motion_progress(elapsed, effective_distance, speed_mms, accel_mms2, duration)
             if motion == "MoveJ":
                 t = 0.5 - 0.5 * math.cos(math.pi * t)
             path.append(
@@ -212,7 +233,42 @@ class KinematicMG400Model:
                     r=start.r + (target.r - start.r) * t,
                 )
             )
-        return path
+        profile = MotionProfile(duration, effective_distance, peak_speed, speed, acceleration, profile_type)
+        return path, profile
+
+    def _motion_duration(self, distance: float, speed: float, acceleration: float) -> tuple[float, float, str]:
+        if distance <= 0.001:
+            return 0.0, 0.0, "Idle"
+        accel_time = speed / acceleration
+        accel_distance = 0.5 * acceleration * accel_time * accel_time
+        if 2.0 * accel_distance >= distance:
+            peak = math.sqrt(distance * acceleration)
+            return 2.0 * peak / acceleration, peak, "Triangular"
+        cruise_distance = distance - 2.0 * accel_distance
+        return 2.0 * accel_time + cruise_distance / speed, speed, "Trapezoidal"
+
+    def _motion_progress(self, elapsed: float, distance: float, speed: float, acceleration: float, duration: float) -> float:
+        if distance <= 0.001 or duration <= 0.001:
+            return 1.0
+        half_time = duration / 2.0
+        accel_time = speed / acceleration
+        accel_distance = 0.5 * acceleration * accel_time * accel_time
+        if 2.0 * accel_distance >= distance:
+            if elapsed <= half_time:
+                travelled = 0.5 * acceleration * elapsed * elapsed
+            else:
+                remaining = duration - elapsed
+                travelled = distance - 0.5 * acceleration * remaining * remaining
+        else:
+            cruise_time = duration - 2.0 * accel_time
+            if elapsed <= accel_time:
+                travelled = 0.5 * acceleration * elapsed * elapsed
+            elif elapsed <= accel_time + cruise_time:
+                travelled = accel_distance + speed * (elapsed - accel_time)
+            else:
+                remaining = duration - elapsed
+                travelled = distance - 0.5 * acceleration * remaining * remaining
+        return max(0.0, min(1.0, travelled / distance))
 
     def _sync_backend(self) -> None:
         if self.backend == "PyBullet":
@@ -251,11 +307,30 @@ class KinematicMG400Model:
         self.attached_object_index = None
 
     def _path_intersects_object(self, path: list[Pose], item: SimulationObject) -> bool:
-        margin = 18.0
-        for pose in path:
-            if abs(pose.x - item.x) <= item.size_x / 2.0 + margin and abs(pose.y - item.y) <= item.size_y / 2.0 + margin:
-                if abs((pose.z - self.tool.tcp_offset_z) - item.z) <= item.size_z / 2.0 + margin:
-                    return True
+        margin = max(18.0, self.tool.grip_range * 0.45)
+        swept_radius = max(8.0, self.tool.closed_width / 2.0)
+        for start, end in zip(path, path[1:]):
+            if self._segment_near_object(start, end, item, margin + swept_radius):
+                return True
+        return False
+
+    def _segment_near_object(self, start: Pose, end: Pose, item: SimulationObject, margin: float) -> bool:
+        sx, sy, sz = start.x, start.y, start.z - self.tool.tcp_offset_z
+        ex, ey, ez = end.x, end.y, end.z - self.tool.tcp_offset_z
+        dx, dy, dz = ex - sx, ey - sy, ez - sz
+        length_sq = dx * dx + dy * dy + dz * dz
+        if length_sq <= 0.001:
+            closest = (sx, sy, sz)
+        else:
+            t = ((item.x - sx) * dx + (item.y - sy) * dy + (item.z - sz) * dz) / length_sq
+            t = max(0.0, min(1.0, t))
+            closest = (sx + dx * t, sy + dy * t, sz + dz * t)
+        if item.shape == "Cylinder":
+            radial = math.hypot(closest[0] - item.x, closest[1] - item.y)
+            return radial <= item.radius + margin and abs(closest[2] - item.z) <= item.size_z / 2.0 + margin
+        if abs(closest[0] - item.x) <= item.size_x / 2.0 + margin and abs(closest[1] - item.y) <= item.size_y / 2.0 + margin:
+            if abs(closest[2] - item.z) <= item.size_z / 2.0 + margin:
+                return True
         return False
 
     def _default_objects(self) -> list[SimulationObject]:

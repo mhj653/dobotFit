@@ -16,6 +16,8 @@ class SimulationModelTests(unittest.TestCase):
         self.assertGreater(len(model.last_path), 2)
         self.assertAlmostEqual(model.pose.x, 320)
         self.assertNotEqual(model.joints.j1, 0.0)
+        self.assertGreater(model.last_motion.duration_s, 0.0)
+        self.assertIn(model.last_motion.profile_type, {"Triangular", "Trapezoidal"})
 
     def test_workspace_limit_rejects_unreachable_target(self) -> None:
         model = KinematicMG400Model()
@@ -48,6 +50,7 @@ class SimulationModelTests(unittest.TestCase):
             self.assertTrue(engine.initialize_scene())
             self.assertGreater(engine.object_count(), 0)
             self.assertTrue(engine.uses_urdf_model)
+            self.assertIn("j4", engine.robot_joint_indices)
             frame = engine.render_camera(96, 72)
             self.assertIsNotNone(frame)
             assert frame is not None
@@ -71,3 +74,4 @@ class SimulationModelTests(unittest.TestCase):
             self.assertGreater(snapshot.render_width, 0)
             self.assertGreater(snapshot.render_height, 0)
             self.assertIsNotNone(snapshot.render_rgba)
+            self.assertIsNotNone(snapshot.motion)

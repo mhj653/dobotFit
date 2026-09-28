@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from core.models import Pose, Position, SequenceStep
+from core.tool_config import GripperIOConfig
 from core.vision_profiles import (
     default_calibration_store,
     default_vision_store,
@@ -46,6 +47,8 @@ DEFAULT_ROBOT = {
     "timeout_s": 1.5,
 }
 
+DEFAULT_TOOLS = {"soft_gripper": GripperIOConfig().to_dict()}
+
 
 class ProjectManager:
     def __init__(self, project_path: Path) -> None:
@@ -61,6 +64,7 @@ class ProjectManager:
         positions = [Position.from_dict(item) for item in self._read_json(positions_path, [p.to_dict() for p in DEFAULT_POSITIONS])]
         sequence = [SequenceStep.from_dict(item) for item in self._read_json(sequence_path, [s.to_dict() for s in DEFAULT_SEQUENCE])]
         io_mapping = self._read_json(io_path, {"DO01": "Gripper_Open", "DO02": "Gripper_Close", "DI01": "Grip_OK"})
+        tools = self._read_json(self.project_path / "tools.json", DEFAULT_TOOLS)
         vision = normalize_vision_store(self._read_json(self.project_path / "vision.json", default_vision_store()))
         calibration = normalize_calibration_store(self._read_json(self.project_path / "calibration.json", default_calibration_store()))
         return {
@@ -69,6 +73,7 @@ class ProjectManager:
             "positions": positions,
             "sequence": sequence,
             "io_mapping": io_mapping,
+            "tools": tools,
             "vision": vision,
             "calibration": calibration,
         }
@@ -79,6 +84,7 @@ class ProjectManager:
         sequence: list[SequenceStep],
         io_mapping: dict[str, str],
         robot_config: dict[str, Any] | None = None,
+        tools: dict[str, Any] | None = None,
         vision: dict[str, Any] | None = None,
         calibration: dict[str, Any] | None = None,
     ) -> None:
@@ -92,7 +98,7 @@ class ProjectManager:
             robot_config
             or DEFAULT_ROBOT,
         )
-        self._write_json(self.project_path / "tools.json", {"soft_gripper": {"open_output": "DO01", "close_output": "DO02", "sensor_input": "DI01"}})
+        self._write_json(self.project_path / "tools.json", tools or DEFAULT_TOOLS)
         self._write_json(self.project_path / "vision.json", normalize_vision_store(vision))
         self._write_json(self.project_path / "calibration.json", normalize_calibration_store(calibration))
 

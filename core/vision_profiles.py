@@ -22,6 +22,9 @@ def default_detection_dict() -> dict[str, Any]:
         "open_iterations": config.open_iterations,
         "close_iterations": config.close_iterations,
         "min_circularity": config.min_circularity,
+        "yolo_model_path": config.yolo_model_path,
+        "yolo_class_filter": config.yolo_class_filter,
+        "angle_offset_deg": config.angle_offset_deg,
         "roi": {
             "x_percent": config.roi_x_percent,
             "y_percent": config.roi_y_percent,
@@ -168,6 +171,9 @@ def detection_config_from_profile(profile: dict[str, Any] | None) -> DetectionCo
         open_iterations=int(float(data.get("open_iterations", 0))),
         close_iterations=int(float(data.get("close_iterations", 0))),
         min_circularity=float(data.get("min_circularity", 0.0)),
+        yolo_model_path=str(data.get("yolo_model_path", "")),
+        yolo_class_filter=str(data.get("yolo_class_filter", "")),
+        angle_offset_deg=float(data.get("angle_offset_deg", 0.0)),
     )
 
 

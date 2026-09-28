@@ -24,6 +24,48 @@ class MG400ConnectionConfig:
 PacketCallback = Callable[[dict], None]
 
 
+DOBOT_ERROR_CODES = {
+    0: "No error",
+    -1: "Command received but execution failed",
+    -2: "Robot is in alarm status. Clear the alarm before retrying",
+    -3: "Emergency stop is active. Release E-stop, clear alarm, then retry",
+    -4: "Robot is powered off",
+    -5: "Robot is running or paused in script/project mode",
+    -6: "Jog axis and motion type do not match",
+    -7: "Robot script is paused. Stop the script first",
+    -8: "Robot certification expired or unavailable",
+    -10000: "Command does not exist",
+    -20000: "Incorrect number of command parameters",
+    -30001: "First parameter type is incorrect",
+    -30002: "Second parameter type is incorrect",
+    -30003: "Third parameter type is incorrect",
+    -30004: "Fourth parameter type is incorrect",
+    -40001: "First parameter is outside the valid range",
+    -40002: "Second parameter is outside the valid range",
+    -40003: "Third parameter is outside the valid range",
+    -40004: "Fourth parameter is outside the valid range",
+    -50001: "First optional parameter type is incorrect",
+    -50002: "Second optional parameter type is incorrect",
+    -60001: "First optional parameter is outside the valid range",
+    -60002: "Second optional parameter is outside the valid range",
+}
+
+
+ROBOT_MODES = {
+    1: "INIT",
+    2: "BRAKE_OPEN",
+    3: "POWEROFF",
+    4: "DISABLED",
+    5: "ENABLE_IDLE",
+    6: "BACKDRIVE",
+    7: "RUNNING",
+    8: "SINGLE_MOVE",
+    9: "ERROR",
+    10: "PAUSE",
+    11: "COLLISION",
+}
+
+
 class DobotTcpChannel:
     def __init__(self, ip: str, port: int, timeout_s: float, packet_callback: PacketCallback | None = None) -> None:
         self.ip = ip
@@ -105,6 +147,9 @@ class RealMG400(IRobot):
         self.joints = JointState()
         self.enabled = False
         self.last_reply = ""
+        self.robot_mode_code: int | None = None
+        self.robot_mode_text = "Unknown"
+        self.error_ids: list[int] = []
 
     def connect(self) -> Result:
         try:
@@ -135,7 +180,10 @@ class RealMG400(IRobot):
         return result
 
     def clear_error(self) -> Result:
-        return self._dashboard("ClearError()")
+        result = self._dashboard("ClearError()")
+        if result.success:
+            self.error_ids = []
+        return result
 
     def get_pose(self) -> Pose:
         if not self.dashboard.connected:
@@ -219,8 +267,34 @@ class RealMG400(IRobot):
     def digital_input(self, channel: int) -> Result:
         return self._dashboard(f"DI({channel:d})")
 
+    def read_digital_input(self, channel: int) -> tuple[Result, bool]:
+        result = self.digital_input(channel)
+        if not result.success:
+            return result, False
+        values = _extract_reply_numbers(self.last_reply)
+        if not values:
+            return Result.fail(f"Unexpected DI{channel:02d} reply: {self.last_reply}", "BAD_REPLY"), False
+        return result, bool(int(values[0]))
+
     def digital_output(self, channel: int, state: bool) -> Result:
         return self._dashboard(f"DO({channel:d},{1 if state else 0})")
+
+    def refresh_status(self) -> Result:
+        mode_result = self._dashboard("RobotMode()")
+        if mode_result.success:
+            values = _extract_reply_numbers(self.last_reply)
+            if values:
+                self.robot_mode_code = int(values[0])
+                self.robot_mode_text = ROBOT_MODES.get(self.robot_mode_code, f"UNKNOWN_{self.robot_mode_code}")
+        error_result = self._dashboard("GetErrorID()")
+        if error_result.success:
+            self.error_ids = _extract_error_ids(self.last_reply)
+        if not mode_result.success:
+            return mode_result
+        if not error_result.success:
+            return error_result
+        error_text = "No controller/servo alarms" if not self.error_ids else f"Alarm IDs: {', '.join(str(item) for item in self.error_ids)}"
+        return Result.ok(f"RobotMode={self.robot_mode_code} ({self.robot_mode_text}); {error_text}")
 
     def _move(self, name: str, pose: Pose, speed: float, acceleration: float) -> Result:
         if not self.move.connected:
@@ -272,7 +346,8 @@ def _result_from_reply(reply: str, command: str) -> Result:
         return Result.fail(f"{command} returned unparseable reply: {reply}", "BAD_REPLY")
     if code == 0:
         return Result.ok(f"{command} OK")
-    return Result.fail(f"{command} failed with controller code {code}: {reply}", f"DOBOT_{code}")
+    detail = DOBOT_ERROR_CODES.get(code, "Unknown Dobot controller error")
+    return Result.fail(f"{command} failed with controller code {code}: {detail}. Raw reply: {reply}", f"DOBOT_{code}")
 
 
 def _extract_reply_numbers(reply: str) -> list[float]:
@@ -289,3 +364,10 @@ def _extract_reply_numbers(reply: str) -> list[float]:
         except ValueError:
             continue
     return numbers
+
+
+def _extract_error_ids(reply: str) -> list[int]:
+    match = re.search(r"\{(.+)\}", reply)
+    if not match:
+        return []
+    return [int(value) for value in re.findall(r"-?\d+", match.group(1)) if int(value) != 0]

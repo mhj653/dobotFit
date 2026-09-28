@@ -96,6 +96,7 @@ class RealMG400TcpTests(unittest.TestCase):
             result = robot.enable()
             self.assertFalse(result.success)
             self.assertEqual(result.error_code, "DOBOT_-1")
+            self.assertIn("execution failed", result.message)
         finally:
             robot.disconnect()
             dashboard.close()
@@ -122,6 +123,49 @@ class RealMG400TcpTests(unittest.TestCase):
             self.assertTrue(robot.jog("X", 1, 5).success)
             self.assertIn("GetPose()", dashboard.commands)
             self.assertIn("MovL(305.000,10.000,220.000,90.000)", move.commands)
+        finally:
+            robot.disconnect()
+            dashboard.close()
+            move.close()
+
+    def test_refresh_status_decodes_robot_mode_and_error_ids(self) -> None:
+        dashboard = FakeDobotServer(
+            {
+                "RobotMode()": "0,{9},RobotMode();",
+                "GetErrorID()": "0,{[[-2],[],[],[],[],[]]},GetErrorID();",
+            }
+        )
+        move = FakeDobotServer({})
+        try:
+            robot = RealMG400(MG400ConnectionConfig("127.0.0.1", dashboard.port, move.port, timeout_s=0.5))
+            self.assertTrue(robot.connect().success)
+            result = robot.refresh_status()
+            self.assertTrue(result.success)
+            self.assertEqual(robot.robot_mode_text, "ERROR")
+            self.assertEqual(robot.error_ids, [-2])
+            self.assertIn("Alarm IDs: -2", result.message)
+        finally:
+            robot.disconnect()
+            dashboard.close()
+            move.close()
+
+    def test_digital_output_and_input(self) -> None:
+        dashboard = FakeDobotServer(
+            {
+                "DO(1,1)": "0,{},DO();",
+                "DI(1)": "0,{1},DI();",
+            }
+        )
+        move = FakeDobotServer({})
+        try:
+            robot = RealMG400(MG400ConnectionConfig("127.0.0.1", dashboard.port, move.port, timeout_s=0.5))
+            self.assertTrue(robot.connect().success)
+            self.assertTrue(robot.digital_output(1, True).success)
+            result, state = robot.read_digital_input(1)
+            self.assertTrue(result.success)
+            self.assertTrue(state)
+            self.assertIn("DO(1,1)", dashboard.commands)
+            self.assertIn("DI(1)", dashboard.commands)
         finally:
             robot.disconnect()
             dashboard.close()

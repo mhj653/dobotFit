@@ -13,6 +13,11 @@ class SimulationSoftGripper(IGripper):
         self.close_output = 2
         self.sensor_input = 1
 
+    def configure_io(self, open_output: int, close_output: int, sensor_input: int) -> None:
+        self.open_output = open_output
+        self.close_output = close_output
+        self.sensor_input = sensor_input
+
     def open(self) -> Result:
         self.closed = False
         return Result.ok("Soft gripper opened")
@@ -24,4 +29,3 @@ class SimulationSoftGripper(IGripper):
     def test(self) -> Result:
         self.closed = not self.closed
         return Result.ok("Soft gripper test toggled")
-

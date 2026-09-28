@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from core.device_manager import DeviceManager
+from core.tool_config import GripperIOConfig
 
 
 class SettingsPage(QWidget):
@@ -105,10 +106,36 @@ class SettingsPage(QWidget):
         page = QWidget()
         layout = QFormLayout(page)
         layout.addRow("Tool", QLabel("DOBOT Soft Gripper Kit"))
-        layout.addRow("OPEN Output", QLabel("DO01"))
-        layout.addRow("CLOSE Output", QLabel("DO02"))
-        layout.addRow("Sensor Input", QLabel("DI01"))
+        self.gripper_open_output = self._channel_spin(self.devices.gripper_io.open_output)
+        self.gripper_close_output = self._channel_spin(self.devices.gripper_io.close_output)
+        self.gripper_sensor_input = self._channel_spin(self.devices.gripper_io.sensor_input)
+        layout.addRow("OPEN Output", self.gripper_open_output)
+        layout.addRow("CLOSE Output", self.gripper_close_output)
+        layout.addRow("Sensor Input", self.gripper_sensor_input)
+        apply = QPushButton("Apply Gripper I/O")
+        apply.clicked.connect(self.apply_gripper_settings)
+        layout.addRow(apply)
         return page
+
+    def _channel_spin(self, value: int) -> QSpinBox:
+        spin = QSpinBox()
+        spin.setRange(1, 8)
+        spin.setValue(value)
+        return spin
+
+    def apply_gripper_settings(self) -> None:
+        self.devices.configure_gripper_io(
+            self.gripper_open_output.value(),
+            self.gripper_close_output.value(),
+            self.gripper_sensor_input.value(),
+        )
+
+    def load_gripper_config(self, config: GripperIOConfig) -> None:
+        if not hasattr(self, "gripper_open_output"):
+            return
+        self.gripper_open_output.setValue(config.open_output)
+        self.gripper_close_output.setValue(config.close_output)
+        self.gripper_sensor_input.setValue(config.sensor_input)
 
     def _camera_tab(self) -> QWidget:
         page = QWidget()

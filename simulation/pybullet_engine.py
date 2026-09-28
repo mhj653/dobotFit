@@ -154,9 +154,7 @@ class PyBulletEngine:
             p.resetBasePositionAndOrientation(self.body_ids[1], [0, 0, 0.13], [0, 0, 0, 1], physicsClientId=self.client_id)
             for body, start, end in zip(self.body_ids[2:], points[:-1], points[1:]):
                 self._place_link(body, start, end)
-        tool = points[-1]
-        tool_yaw = math.radians(pose.r)
-        finger_axis = (-math.sin(tool_yaw), math.cos(tool_yaw), 0.0)
+        tool, tool_orientation = self._tool_frame(points[-1], pose.r)
         closed_width = (tool_profile.closed_width if tool_profile is not None else 16.0) / 1000.0
         open_width = (tool_profile.open_width if tool_profile is not None else 42.0) / 1000.0
         offset_z = (tool_profile.tcp_offset_z if tool_profile is not None else 65.0) / 1000.0
@@ -172,14 +170,10 @@ class PyBulletEngine:
             )
             p.resetBasePositionAndOrientation(
                 body,
-                [
-                    tool[0] + finger_axis[0] * y_offset,
-                    tool[1] + finger_axis[1] * y_offset,
-                    tool[2] - offset_z * 0.55,
-                ]
+                self._tool_local_position(tool, tool_orientation, [0.0, y_offset, -offset_z * 0.55])
                 if not is_vacuum
                 else [2.0, 2.0, -1.0],
-                p.getQuaternionFromEuler([0, 0, tool_yaw]),
+                tool_orientation,
                 physicsClientId=self.client_id,
             )
         if self.vacuum_id is not None:
@@ -191,8 +185,8 @@ class PyBulletEngine:
             )
             p.resetBasePositionAndOrientation(
                 self.vacuum_id,
-                [tool[0], tool[1], tool[2] - offset_z] if is_vacuum else [2.0, 2.0, -1.0],
-                p.getQuaternionFromEuler([0, 0, tool_yaw]),
+                self._tool_local_position(tool, tool_orientation, [0.0, 0.0, -offset_z]) if is_vacuum else [2.0, 2.0, -1.0],
+                tool_orientation,
                 physicsClientId=self.client_id,
             )
         if objects is not None:
@@ -200,7 +194,7 @@ class PyBulletEngine:
                 self.configure(objects, tool_profile or self.tool_profile)
             for index, (item, body_id) in enumerate(zip(objects, self.object_body_ids)):
                 if attached_index == index:
-                    pos = [tool[0], tool[1], tool[2] - offset_z]
+                    pos = self._tool_local_position(tool, tool_orientation, [0.0, 0.0, -offset_z])
                 else:
                     pos = [item.x / 1000.0, item.y / 1000.0, item.z / 1000.0]
                 p.resetBasePositionAndOrientation(
@@ -311,6 +305,22 @@ class PyBulletEngine:
             index = self.robot_joint_indices.get(name)
             if index is not None:
                 p.resetJointState(self.robot_id, index, value, physicsClientId=self.client_id)
+
+    def _tool_frame(self, fallback_position: tuple[float, float, float], fallback_r_deg: float) -> tuple[list[float], list[float]]:
+        p = self.pybullet
+        assert p is not None and self.client_id is not None
+        if self.robot_id is not None:
+            flange_index = self.robot_joint_indices.get("j4")
+            if flange_index is not None:
+                link_state = p.getLinkState(self.robot_id, flange_index, computeForwardKinematics=True, physicsClientId=self.client_id)
+                return list(link_state[4]), list(link_state[5])
+        return list(fallback_position), list(p.getQuaternionFromEuler([0, 0, math.radians(fallback_r_deg)]))
+
+    def _tool_local_position(self, position: list[float], orientation: list[float], local_offset: list[float]) -> list[float]:
+        p = self.pybullet
+        assert p is not None
+        world_position, _world_orientation = p.multiplyTransforms(position, orientation, local_offset, [0, 0, 0, 1])
+        return list(world_position)
 
     def _urdf_joint_targets(self, pose: Pose) -> dict[str, float]:
         radius = math.hypot(pose.x, pose.y)

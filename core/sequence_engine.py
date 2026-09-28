@@ -87,7 +87,7 @@ class SequenceEngine(QObject):
 
         if device == "wait" and command == "di":
             channel = int(float(target or 1))
-            if self.device_manager.io.read_di(channel):
+            if self.device_manager.read_di(channel):
                 return Result.ok(f"DI{channel:02d} is ON")
             return Result.fail(f"DI{channel:02d} is OFF", "WAIT_DI_TIMEOUT")
 
@@ -206,7 +206,7 @@ class SequenceEngine(QObject):
                 channel = int(channel_text.replace("DI", ""))
             except ValueError:
                 return None
-            actual = self.device_manager.io.read_di(channel)
+            actual = self.device_manager.read_di(channel)
             expected = state_text in {"ON", "1", "TRUE"}
             return actual == expected
         for op in [">=", "<=", "==", "!=", ">", "<", "="]:

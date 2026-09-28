@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 import os
 import sys
+import importlib.util
 
 from PyInstaller.utils.hooks import collect_all
 
@@ -16,6 +17,10 @@ binaries = [
 hiddenimports = ['pybullet', 'numpy', 'pyrealsense2', 'cv2']
 tmp_ret = collect_all('numpy')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+for optional_package in ['ultralytics', 'torch']:
+    if importlib.util.find_spec(optional_package) is not None:
+        tmp_ret = collect_all(optional_package)
+        datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(

@@ -28,6 +28,9 @@ class DetectionConfig:
     open_iterations: int = 0
     close_iterations: int = 0
     min_circularity: float = 0.0
+    yolo_model_path: str = ""
+    yolo_class_filter: str = ""
+    angle_offset_deg: float = 0.0
 
     def roi_pixels(self, width: int, height: int) -> tuple[int, int, int, int]:
         x = int(width * self.roi_x_percent / 100.0)
@@ -82,6 +85,7 @@ class VisionResult:
             "vision_y": self.vision_y,
             "vision_z": self.vision_z,
             "vision_r": self.vision_r,
+            "vision_rz": self.vision_r,
             "vision_score": self.score,
             "vision_pixel_u": self.pixel_u,
             "vision_pixel_v": self.pixel_v,
