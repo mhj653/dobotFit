@@ -136,6 +136,7 @@ class MainWindow(QMainWindow):
         self.title_label.double_clicked.connect(self._edit_app_title)
         self.connection = QLabel("MG400 Connected")
         self.connection.setProperty("class", "ok")
+        self.connection.setMinimumWidth(210)
         self.alarm = QLabel("No Alarm")
         self.alarm.setProperty("class", "muted")
         self.clock = QLabel()
@@ -280,11 +281,14 @@ class MainWindow(QMainWindow):
             button.style().unpolish(button)
             button.style().polish(button)
         if is_real:
-            connected = self.devices.real_robot_connected()
-            self.connection.setText("REAL MG400 CONNECTED" if connected else "REAL MG400 NOT CONNECTED")
+            report = self.devices.robot_health
+            connected = self.devices.real_robot_connected() and report.success
+            self.connection.setText(report.summary())
+            self.connection.setToolTip(report.result_message())
             self.connection.setProperty("class", "ok" if connected else "bad")
         else:
             self.connection.setText("MG400 Simulation Connected")
+            self.connection.setToolTip("Simulation driver is active.")
             self.connection.setProperty("class", "ok")
         self.alarm.setText(self.devices.last_alarm or "No Alarm")
         self.alarm.setProperty("class", "bad" if self.devices.last_alarm else "muted")

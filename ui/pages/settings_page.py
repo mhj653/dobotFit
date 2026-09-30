@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -66,6 +66,8 @@ class SettingsPage(QWidget):
         connect.setToolTip("Apply the current settings, then connect to the robot.")
         connect.clicked.connect(self.connect_robot)
         self.connection_status = QLabel("Not connected")
+        self.connection_status.setWordWrap(True)
+        self.connection_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         form.addRow(apply)
         form.addRow(connect)
         form.addRow("Status", self.connection_status)
@@ -105,7 +107,7 @@ class SettingsPage(QWidget):
             self.set_robot_mode("REAL")
             self.devices.set_mode("REAL")
         self.apply_connection_settings()
-        result = self.devices.connect_all()
+        result = self.devices.connect_and_test_real_robot()
         self._set_connection_status(result.message)
 
     def _set_connection_status(self, text: str) -> None:

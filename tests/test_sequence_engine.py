@@ -140,6 +140,88 @@ class SequenceEngineTests(unittest.TestCase):
             dashboard.close()
             move.close()
 
+    def test_connect_all_reports_enable_failure_after_socket_connection(self) -> None:
+        dashboard = FakeDobotServer({"EnableRobot()": "-1,{},EnableRobot();"})
+        move = FakeDobotServer({})
+        try:
+            devices = DeviceManager()
+            devices.set_mode("REAL")
+            devices.configure_real_robot("127.0.0.1", dashboard.port, move.port, timeout_s=0.5)
+
+            result = devices.connect_all()
+
+            self.assertFalse(result.success)
+            self.assertEqual(result.error_code, "ENABLE_FAILED")
+            self.assertTrue(devices.real_robot_connected())
+            self.assertIn("EnableRobot failed", result.message)
+        finally:
+            devices.robot.disconnect()
+            dashboard.close()
+            move.close()
+
+    def test_connect_and_test_real_robot_records_full_health_report(self) -> None:
+        dashboard = FakeDobotServer(
+            {
+                "EnableRobot()": "0,{},EnableRobot();",
+                "RobotMode()": "0,{5},RobotMode();",
+                "GetErrorID()": "0,{[[],[],[],[],[],[]]},GetErrorID();",
+                "GetPose()": "0,{300.000,10.000,220.000,90.000},GetPose();",
+                "GetAngle()": "0,{1.000,2.000,3.000,4.000},GetAngle();",
+            }
+        )
+        move = FakeDobotServer({})
+        feedback = FakeDobotServer({})
+        try:
+            devices = DeviceManager()
+            devices.set_mode("REAL")
+            devices.configure_real_robot("127.0.0.1", dashboard.port, move.port, feedback.port, timeout_s=0.5)
+
+            result = devices.connect_and_test_real_robot()
+
+            self.assertTrue(result.success)
+            self.assertTrue(devices.robot_health.success)
+            self.assertEqual(devices.robot_health.summary(), "REAL MG400 READY: ENABLE_IDLE")
+            self.assertIn("GetPose", devices.robot_health.detail_text())
+            self.assertIn("GetAngle", devices.robot_health.detail_text())
+            self.assertIn("TCP/IP API Mode", devices.robot_health.detail_text())
+            self.assertIn("ENABLE_IDLE", devices.robot_health.detail_text())
+        finally:
+            devices.robot.disconnect()
+            dashboard.close()
+            move.close()
+            feedback.close()
+
+    def test_connect_and_test_real_robot_shows_failed_check(self) -> None:
+        dashboard = FakeDobotServer(
+            {
+                "EnableRobot()": "0,{},EnableRobot();",
+                "RobotMode()": "0,{5},RobotMode();",
+                "GetErrorID()": "0,{[[],[],[],[],[],[]]},GetErrorID();",
+                "GetPose()": "-1,{},GetPose();",
+                "GetAngle()": "0,{1.000,2.000,3.000,4.000},GetAngle();",
+            }
+        )
+        move = FakeDobotServer({})
+        feedback = FakeDobotServer({})
+        try:
+            devices = DeviceManager()
+            devices.set_mode("REAL")
+            devices.configure_real_robot("127.0.0.1", dashboard.port, move.port, feedback.port, timeout_s=0.5)
+
+            result = devices.connect_and_test_real_robot()
+
+            self.assertFalse(result.success)
+            self.assertEqual(result.error_code, "ROBOT_HEALTH_FAILED")
+            self.assertEqual(devices.robot_health.summary(), "REAL MG400 ISSUE: GetPose")
+            self.assertIn("NG | GetPose", devices.robot_health.detail_text())
+            self.assertIn("TCP/IP API Mode", devices.robot_health.detail_text())
+            self.assertIn("Raw reply: -1,{},GetPose();", result.message)
+        finally:
+            devices.robot.disconnect()
+            dashboard.close()
+            move.close()
+            feedback.close()
+
 
 if __name__ == "__main__":
     unittest.main()

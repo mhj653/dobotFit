@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, Signal
 
 from core.models import JointState, Pose, Result
+from core.robot_health import RobotHealthReport, RobotHealthStep
 from core.tool_config import GripperIOConfig
 from drivers.camera import RealSenseD405Camera
 from drivers.gripper import DobotSoftGripper, SimulationSoftGripper
@@ -30,6 +31,7 @@ class DeviceManager(QObject):
         self.plc = MockPLC()
         self.last_alarm = ""
         self.last_grip_ok = False
+        self.robot_health = RobotHealthReport("SIMULATION")
         self._apply_gripper_config()
         self.connect_all()
 
@@ -75,6 +77,7 @@ class DeviceManager(QObject):
             disconnect()
 
         self.mode = normalized
+        self.robot_health = RobotHealthReport(normalized)
         if normalized == "REAL":
             self.robot = RealMG400(self.real_robot_config, self._on_robot_packet)
             self.gripper = DobotSoftGripper(self._write_robot_do, self._read_robot_di)
@@ -118,6 +121,7 @@ class DeviceManager(QObject):
             self.robot = RealMG400(self.real_robot_config, self._on_robot_packet)
             self.gripper = DobotSoftGripper(self._write_robot_do, self._read_robot_di)
             self._apply_gripper_config()
+            self.robot_health = RobotHealthReport("REAL")
         result = Result.ok(f"Real MG400 connection settings updated: {ip}")
         self._log("INFO", "Device", result.message)
         self.state_changed.emit()
@@ -129,11 +133,91 @@ class DeviceManager(QObject):
             enable_result = self.robot.enable()
             if not enable_result.success:
                 self._log("WARNING", "Robot", enable_result.message)
+                self.last_alarm = enable_result.message
+                result = Result.fail(f"{robot_result.message}; EnableRobot failed: {enable_result.message}", "ENABLE_FAILED")
+                self._log("ERROR", "Device", result.message)
+                self.state_changed.emit()
+                return result
         else:
             self.last_alarm = robot_result.message
         self._log("INFO" if robot_result.success else "ERROR", "Device", robot_result.message)
         self.state_changed.emit()
         return robot_result
+
+    def connect_and_test_real_robot(self) -> Result:
+        if self.mode != "REAL":
+            self.set_mode("REAL")
+        report = RobotHealthReport("REAL")
+        self.robot_health = report
+
+        connect_result = self.robot.connect()
+        report.checks.append(RobotHealthStep("Dashboard/Move TCP", connect_result.success, connect_result.message))
+        if not connect_result.success:
+            self.last_alarm = connect_result.message
+            self._log("ERROR", "Device", report.result_message())
+            self.state_changed.emit()
+            return Result.fail(report.result_message(), connect_result.error_code or "CONNECTION_FAILED")
+
+        dashboard = getattr(self.robot, "dashboard", None)
+        move = getattr(self.robot, "move", None)
+        report.checks.append(
+            RobotHealthStep(
+                f"Dashboard port {self.real_robot_config.dashboard_port}",
+                bool(dashboard is not None and dashboard.connected),
+                "socket connected" if dashboard is not None and dashboard.connected else "socket not connected",
+            )
+        )
+        report.checks.append(
+            RobotHealthStep(
+                f"Move port {self.real_robot_config.move_port}",
+                bool(move is not None and move.connected),
+                "socket connected" if move is not None and move.connected else "socket not connected",
+            )
+        )
+        feedback_result = self._test_feedback_port()
+        report.checks.append(RobotHealthStep(f"Feedback port {self.real_robot_config.feedback_port}", feedback_result.success, feedback_result.message))
+
+        enable_result = self.robot.enable()
+        report.checks.append(RobotHealthStep("EnableRobot", enable_result.success, enable_result.message))
+        if not enable_result.success:
+            self.robot.enabled = False
+
+        status_result = getattr(self.robot, "refresh_status", lambda: Result.fail("Robot status is not supported", "NOT_SUPPORTED"))()
+        report.checks.append(RobotHealthStep("RobotMode/ErrorID", status_result.success, status_result.message))
+        report.controller_mode_code = getattr(self.robot, "robot_mode_code", None)
+        report.controller_mode_text = str(getattr(self.robot, "robot_mode_text", "Unknown"))
+
+        pose_result = getattr(self.robot, "refresh_pose", lambda: Result.fail("GetPose is not supported", "NOT_SUPPORTED"))()
+        report.checks.append(RobotHealthStep("GetPose", pose_result.success, pose_result.message))
+
+        angle_result = getattr(self.robot, "refresh_joints", lambda: Result.fail("GetAngle is not supported", "NOT_SUPPORTED"))()
+        report.checks.append(RobotHealthStep("GetAngle", angle_result.success, angle_result.message))
+
+        api_ready = enable_result.success and status_result.success and pose_result.success and angle_result.success
+        mode_text = getattr(self.robot, "robot_mode_text", "Unknown")
+        mode_code = getattr(self.robot, "robot_mode_code", None)
+        if api_ready:
+            api_message = f"TCP/IP command mode usable; controller state {mode_code} ({mode_text})"
+        else:
+            api_message = "TCP/IP command mode not fully verified; check DobotStudio Pro TCP/IP secondary development mode and robot alarms"
+        report.checks.append(RobotHealthStep("TCP/IP API Mode", api_ready, api_message, required=False))
+
+        result = Result.ok(report.result_message()) if report.success else Result.fail(report.result_message(), "ROBOT_HEALTH_FAILED")
+        self.last_alarm = "" if result.success else report.summary()
+        self._log("INFO" if result.success else "ERROR", "Device", report.result_message())
+        self.state_changed.emit()
+        return result
+
+    def _test_feedback_port(self) -> Result:
+        feedback = getattr(self.robot, "feedback", None)
+        if feedback is None:
+            return Result.fail("Feedback channel is not available", "NOT_SUPPORTED")
+        try:
+            if not feedback.connected:
+                feedback.connect()
+        except OSError as exc:
+            return Result.fail(f"Feedback socket failed: {exc}", "FEEDBACK_FAILED")
+        return Result.ok("socket connected")
 
     def robot_pose(self) -> Pose:
         return self.robot.get_pose()
