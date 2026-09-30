@@ -1,6 +1,7 @@
 param(
     [string]$TrainingDist = "D:\Samsung\realsense\dist\YoloSegTrainingUtility",
-    [string]$OutputRoot = ".\release\DobotMG400Studio"
+    [string]$OutputRoot = ".\release\DobotMG400Studio-Base",
+    [switch]$IncludeYolo
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,7 +14,7 @@ $releaseRoot = Join-Path $repo "release"
 if (-not (Test-Path $mainDist)) {
     throw "RobotAutomationStudio dist was not found: $mainDist"
 }
-if (-not (Test-Path $TrainingDist)) {
+if ($IncludeYolo -and -not (Test-Path $TrainingDist)) {
     throw "YoloTrainingUtility dist was not found: $TrainingDist"
 }
 
@@ -31,27 +32,57 @@ if (Test-Path $zipPath) {
 
 New-Item -ItemType Directory -Path $output | Out-Null
 Copy-Item -LiteralPath $mainDist -Destination (Join-Path $output "RobotAutomationStudio") -Recurse
-Copy-Item -LiteralPath $TrainingDist -Destination (Join-Path $output "YoloTrainingUtility") -Recurse
+if ($IncludeYolo) {
+    Copy-Item -LiteralPath $TrainingDist -Destination (Join-Path $output "YoloTrainingUtility") -Recurse
+}
 
 foreach ($path in @(
     "RobotAutomationStudio\models",
     "RobotAutomationStudio\projects",
-    "RobotAutomationStudio\configs",
-    "YoloTrainingUtility\datasets",
-    "YoloTrainingUtility\runs",
-    "YoloTrainingUtility\pretrained_models"
+    "RobotAutomationStudio\configs"
 )) {
     New-Item -ItemType Directory -Path (Join-Path $output $path) -Force | Out-Null
 }
 
-$sourcePretrained = "D:\Samsung\realsense\app_training\models"
-if (Test-Path $sourcePretrained) {
-    Get-ChildItem -LiteralPath $sourcePretrained | Copy-Item -Destination (Join-Path $output "YoloTrainingUtility\pretrained_models") -Recurse -Force
-}
+@"
+Dobot MG400 Studio - Basic Release
 
-$sampleModel = "D:\Samsung\realsense\app_main\models\best.pt"
-if (Test-Path $sampleModel) {
-    Copy-Item -LiteralPath $sampleModel -Destination (Join-Path $output "RobotAutomationStudio\models\best.pt") -Force
+Included:
+- Dobot MG400 control
+- Simulation / PyBullet preview
+- RealSense D405 RGB-D capture
+- Blob vision detection
+- Camera calibration
+- Sequence execution
+
+Not included in this basic release:
+- YOLO runtime
+- YOLO training utility
+- Torch / Ultralytics dependencies
+
+YOLO can be added later as a separate addon package.
+"@ | Set-Content -LiteralPath (Join-Path $output "README_BASIC_RELEASE.txt") -Encoding UTF8
+
+if ($IncludeYolo) {
+    foreach ($path in @(
+        "YoloTrainingUtility\datasets",
+        "YoloTrainingUtility\runs",
+        "YoloTrainingUtility\pretrained_models"
+    )) {
+        New-Item -ItemType Directory -Path (Join-Path $output $path) -Force | Out-Null
+    }
+
+    $sourcePretrained = "D:\Samsung\realsense\app_training\models"
+    if (Test-Path $sourcePretrained) {
+        Get-ChildItem -LiteralPath $sourcePretrained | Copy-Item -Destination (Join-Path $output "YoloTrainingUtility\pretrained_models") -Recurse -Force
+    }
+
+    $sampleModel = "D:\Samsung\realsense\app_main\models\best.pt"
+    if (Test-Path $sampleModel) {
+        Copy-Item -LiteralPath $sampleModel -Destination (Join-Path $output "RobotAutomationStudio\models\best.pt") -Force
+    }
+
+    New-Item -ItemType File -Path (Join-Path $output "RobotAutomationStudio\configs\enable_yolo.txt") -Force | Out-Null
 }
 
 Compress-Archive -LiteralPath $output -DestinationPath $zipPath -Force

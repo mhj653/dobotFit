@@ -59,12 +59,16 @@ class SettingsPage(QWidget):
         form.addRow("Move Port", self.move_port)
         form.addRow("Feedback Port", self.feedback_port)
         form.addRow("Timeout", self.timeout_s)
-        apply = QPushButton("Apply Connection Settings")
+        apply = QPushButton("Apply Settings")
+        apply.setToolTip("Save IP and port settings. This does not connect to the robot.")
         apply.clicked.connect(self.apply_connection_settings)
-        connect = QPushButton("Connect")
-        connect.clicked.connect(self.devices.connect_all)
+        connect = QPushButton("Connect Robot")
+        connect.setToolTip("Apply the current settings, then connect to the robot.")
+        connect.clicked.connect(self.connect_robot)
+        self.connection_status = QLabel("Not connected")
         form.addRow(apply)
         form.addRow(connect)
+        form.addRow("Status", self.connection_status)
         safety = QGroupBox("Safety & Limit")
         sform = QFormLayout(safety)
         sform.addRow("J1", QLabel("-160..160 deg"))
@@ -86,13 +90,34 @@ class SettingsPage(QWidget):
         return spin
 
     def apply_connection_settings(self) -> None:
-        self.devices.configure_real_robot(
+        result = self.devices.configure_real_robot(
             self.ip_address.text().strip() or "192.168.1.6",
             self.dashboard_port.value(),
             self.move_port.value(),
             self.feedback_port.value(),
             self.timeout_s.value(),
         )
+        suffix = "" if self.devices.real_robot_connected() else ". Press Connect Robot to connect."
+        self._set_connection_status(f"{result.message}{suffix}")
+
+    def connect_robot(self) -> None:
+        if self.devices.mode != "REAL":
+            self.set_robot_mode("REAL")
+            self.devices.set_mode("REAL")
+        self.apply_connection_settings()
+        result = self.devices.connect_all()
+        self._set_connection_status(result.message)
+
+    def _set_connection_status(self, text: str) -> None:
+        if hasattr(self, "connection_status"):
+            self.connection_status.setText(text)
+
+    def set_robot_mode(self, mode: str) -> None:
+        if not hasattr(self, "mode"):
+            return
+        self.mode.blockSignals(True)
+        self.mode.setCurrentText("REAL" if mode == "REAL" else "SIMULATION")
+        self.mode.blockSignals(False)
 
     def load_robot_config(self, config: dict) -> None:
         self.ip_address.setText(str(config.get("ip", "192.168.1.6")))

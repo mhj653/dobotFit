@@ -112,6 +112,7 @@ class DobotTcpChannel:
         except (OSError, TimeoutError, ConnectionError) as exc:
             elapsed_ms = (time.perf_counter() - start) * 1000.0
             self._emit_packet("ERR", str(exc), command, elapsed_ms, True)
+            self.close()
             raise
 
     def _emit_packet(self, direction: str, message: str, command: str, elapsed_ms: float, error: bool) -> None:
@@ -160,6 +161,10 @@ class RealMG400(IRobot):
             return Result.fail(f"MG400 connection failed: {exc}", "CONNECTION_FAILED")
         return Result.ok(f"MG400 connected at {self.config.ip}")
 
+    @property
+    def connected(self) -> bool:
+        return self.dashboard.connected and self.move.connected
+
     def disconnect(self) -> Result:
         self.dashboard.close()
         self.move.close()
@@ -204,12 +209,15 @@ class RealMG400(IRobot):
             reply = self.dashboard.request("GetPose()")
         except (OSError, TimeoutError, ConnectionError) as exc:
             return Result.fail(f"GetPose failed: {exc}", "COMMUNICATION_ERROR")
+        self.last_reply = reply
+        result = _result_from_reply(reply, "GetPose")
+        if not result.success:
+            return result
         values = _extract_reply_numbers(reply)
         if len(values) < 4:
             return Result.fail(f"Unexpected GetPose reply: {reply}", "BAD_REPLY")
         self.pose = Pose(values[0], values[1], values[2], values[3])
-        self.last_reply = reply
-        return _result_from_reply(reply, "GetPose")
+        return result
 
     def refresh_joints(self) -> Result:
         if not self.dashboard.connected:
@@ -218,11 +226,14 @@ class RealMG400(IRobot):
             reply = self.dashboard.request("GetAngle()")
         except (OSError, TimeoutError, ConnectionError) as exc:
             return Result.fail(f"GetAngle failed: {exc}", "COMMUNICATION_ERROR")
+        self.last_reply = reply
+        result = _result_from_reply(reply, "GetAngle")
+        if not result.success:
+            return result
         values = _extract_reply_numbers(reply)
         if len(values) >= 4:
             self.joints = JointState(values[0], values[1], values[2], values[3])
-        self.last_reply = reply
-        return _result_from_reply(reply, "GetAngle")
+        return result
 
     def get_joints(self) -> JointState:
         if not self.dashboard.connected:
@@ -354,16 +365,7 @@ def _extract_reply_numbers(reply: str) -> list[float]:
     match = re.search(r"\{([^}]*)\}", reply)
     if not match:
         return []
-    numbers = []
-    for token in match.group(1).split(","):
-        token = token.strip()
-        if not token:
-            continue
-        try:
-            numbers.append(float(token))
-        except ValueError:
-            continue
-    return numbers
+    return [float(value) for value in re.findall(r"[-+]?\d+(?:\.\d+)?", match.group(1))]
 
 
 def _extract_error_ids(reply: str) -> list[int]:

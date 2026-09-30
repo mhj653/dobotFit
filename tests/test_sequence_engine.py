@@ -97,6 +97,49 @@ class SequenceEngineTests(unittest.TestCase):
             dashboard.close()
             move.close()
 
+    def test_selecting_real_mode_again_preserves_existing_connection(self) -> None:
+        dashboard = FakeDobotServer({"EnableRobot()": "0,{},EnableRobot();"})
+        move = FakeDobotServer({})
+        try:
+            devices = DeviceManager()
+            devices.set_mode("REAL")
+            devices.configure_real_robot("127.0.0.1", dashboard.port, move.port, timeout_s=0.5)
+            self.assertTrue(devices.connect_all().success)
+            connected_robot = devices.robot
+            self.assertTrue(connected_robot.dashboard.connected)
+
+            result = devices.set_mode("REAL")
+
+            self.assertTrue(result.success)
+            self.assertIs(devices.robot, connected_robot)
+            self.assertTrue(devices.robot.dashboard.connected)
+            self.assertIn("preserved", result.message)
+        finally:
+            devices.robot.disconnect()
+            dashboard.close()
+            move.close()
+
+    def test_reapplying_same_real_robot_settings_preserves_connection(self) -> None:
+        dashboard = FakeDobotServer({"EnableRobot()": "0,{},EnableRobot();"})
+        move = FakeDobotServer({})
+        try:
+            devices = DeviceManager()
+            devices.set_mode("REAL")
+            devices.configure_real_robot("127.0.0.1", dashboard.port, move.port, timeout_s=0.5)
+            self.assertTrue(devices.connect_all().success)
+            connected_robot = devices.robot
+
+            result = devices.configure_real_robot("127.0.0.1", dashboard.port, move.port, timeout_s=0.5)
+
+            self.assertTrue(result.success)
+            self.assertIs(devices.robot, connected_robot)
+            self.assertTrue(devices.real_robot_connected())
+            self.assertIn("preserved", result.message)
+        finally:
+            devices.robot.disconnect()
+            dashboard.close()
+            move.close()
+
 
 if __name__ == "__main__":
     unittest.main()

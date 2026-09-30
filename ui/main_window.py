@@ -125,6 +125,8 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(14, 10, 14, 10)
         self.sim_button = QPushButton("SIMULATION")
         self.real_button = QPushButton("REAL ROBOT")
+        self.sim_button.setCheckable(True)
+        self.real_button.setCheckable(True)
         self.sim_button.setProperty("class", "primary")
         self.sim_button.clicked.connect(lambda: self._set_mode("SIMULATION"))
         self.real_button.clicked.connect(lambda: self._set_mode("REAL"))
@@ -189,6 +191,7 @@ class MainWindow(QMainWindow):
 
     def _set_mode(self, mode: str) -> None:
         self.devices.set_mode("REAL" if mode == "REAL" else "SIMULATION")
+        self.refresh_all()
         self.logger.log("INFO", "System", f"Mode changed to {self.devices.mode}")
 
     def _set_theme(self, theme: str) -> None:
@@ -266,8 +269,18 @@ class MainWindow(QMainWindow):
     def refresh_all(self) -> None:
         self.robot_page.refresh()
         self.io_page.refresh()
-        if self.devices.mode == "REAL":
-            connected = getattr(self.devices.robot, "dashboard", None) is not None and self.devices.robot.dashboard.connected
+        is_real = self.devices.mode == "REAL"
+        if hasattr(self, "settings_page"):
+            self.settings_page.set_robot_mode(self.devices.mode)
+        self.sim_button.setChecked(not is_real)
+        self.real_button.setChecked(is_real)
+        self.sim_button.setProperty("class", "" if is_real else "primary")
+        self.real_button.setProperty("class", "primary" if is_real else "")
+        for button in (self.sim_button, self.real_button):
+            button.style().unpolish(button)
+            button.style().polish(button)
+        if is_real:
+            connected = self.devices.real_robot_connected()
             self.connection.setText("REAL MG400 CONNECTED" if connected else "REAL MG400 NOT CONNECTED")
             self.connection.setProperty("class", "ok" if connected else "bad")
         else:

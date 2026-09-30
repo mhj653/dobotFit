@@ -33,6 +33,14 @@ class DeviceManager(QObject):
         self._apply_gripper_config()
         self.connect_all()
 
+    def real_robot_connected(self) -> bool:
+        connected = getattr(self.robot, "connected", None)
+        if isinstance(connected, bool):
+            return connected
+        dashboard = getattr(self.robot, "dashboard", None)
+        move = getattr(self.robot, "move", None)
+        return bool(dashboard is not None and move is not None and dashboard.connected and move.connected)
+
     def connect_realsense(self, serial: str = "") -> Result:
         disconnect = getattr(self.camera3d, "disconnect", None)
         if callable(disconnect):
@@ -47,8 +55,27 @@ class DeviceManager(QObject):
         return result
 
     def set_mode(self, mode: str) -> Result:
-        self.mode = mode
-        if mode == "REAL":
+        normalized = "REAL" if mode == "REAL" else "SIMULATION"
+        if normalized == self.mode:
+            if normalized == "REAL" and isinstance(self.robot, RealMG400):
+                message = "Real robot mode already selected"
+                if self.real_robot_connected():
+                    message += "; existing MG400 connection preserved"
+                result = Result.ok(message)
+            elif normalized == "SIMULATION" and isinstance(self.robot, SimulationMG400):
+                result = Result.ok("Simulation mode already selected")
+            else:
+                result = Result.ok(f"{normalized} mode already selected")
+            self._log("INFO", "Device", result.message)
+            self.state_changed.emit()
+            return result
+
+        disconnect = getattr(self.robot, "disconnect", None)
+        if callable(disconnect):
+            disconnect()
+
+        self.mode = normalized
+        if normalized == "REAL":
             self.robot = RealMG400(self.real_robot_config, self._on_robot_packet)
             self.gripper = DobotSoftGripper(self._write_robot_do, self._read_robot_di)
             self._apply_gripper_config()
@@ -73,8 +100,21 @@ class DeviceManager(QObject):
         feedback_port: int = 30004,
         timeout_s: float = 1.5,
     ) -> Result:
-        self.real_robot_config = MG400ConnectionConfig(ip, dashboard_port, move_port, feedback_port, timeout_s)
+        new_config = MG400ConnectionConfig(ip, dashboard_port, move_port, feedback_port, timeout_s)
+        same_config = new_config == self.real_robot_config
+        self.real_robot_config = new_config
         if self.mode == "REAL":
+            if same_config and isinstance(self.robot, RealMG400):
+                message = f"Real MG400 connection settings unchanged: {ip}"
+                if self.real_robot_connected():
+                    message += "; existing connection preserved"
+                result = Result.ok(message)
+                self._log("INFO", "Device", result.message)
+                self.state_changed.emit()
+                return result
+            disconnect = getattr(self.robot, "disconnect", None)
+            if callable(disconnect):
+                disconnect()
             self.robot = RealMG400(self.real_robot_config, self._on_robot_packet)
             self.gripper = DobotSoftGripper(self._write_robot_do, self._read_robot_di)
             self._apply_gripper_config()

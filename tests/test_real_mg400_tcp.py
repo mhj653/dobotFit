@@ -102,6 +102,21 @@ class RealMG400TcpTests(unittest.TestCase):
             dashboard.close()
             move.close()
 
+    def test_get_pose_controller_error_is_reported_before_payload_validation(self) -> None:
+        dashboard = FakeDobotServer({"GetPose()": "-1,{},GetPose();"})
+        move = FakeDobotServer({})
+        try:
+            robot = RealMG400(MG400ConnectionConfig("127.0.0.1", dashboard.port, move.port, timeout_s=0.5))
+            self.assertTrue(robot.connect().success)
+            result = robot.refresh_pose()
+            self.assertFalse(result.success)
+            self.assertEqual(result.error_code, "DOBOT_-1")
+            self.assertIn("Raw reply", result.message)
+        finally:
+            robot.disconnect()
+            dashboard.close()
+            move.close()
+
     def test_jog_uses_current_pose_and_step_increment(self) -> None:
         dashboard = FakeDobotServer(
             {

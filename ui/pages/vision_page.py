@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 
 from core.calibration_solver import calibration_errors, has_spatial_variation, robot_xyz, solve_camera_to_robot_matrix
 from core.device_manager import DeviceManager
+from core.features import yolo_enabled
 from core.vision_profiles import (
     DEFAULT_CALIBRATION_PROFILE,
     DEFAULT_VISION_PROFILE,
@@ -50,6 +51,9 @@ from ui.widgets.image_view import ImageView
 from ui.pages.vision_manuals import calibration_manual_html
 
 
+YOLO_FEATURE_ENABLED = yolo_enabled()
+
+
 DETECTION_ALGORITHMS = {
     "Blob": {
         "parameters": (
@@ -63,7 +67,9 @@ DETECTION_ALGORITHMS = {
             "min_circularity",
         ),
     },
-    "YOLO Segmentation": {
+}
+if YOLO_FEATURE_ENABLED:
+    DETECTION_ALGORITHMS["YOLO Segmentation"] = {
         "parameters": (
             "threshold",
             "yolo_model_path",
@@ -73,8 +79,7 @@ DETECTION_ALGORITHMS = {
             "max_area",
             "angle_offset",
         ),
-    },
-}
+    }
 
 
 class VisionPage(QWidget):
@@ -682,6 +687,9 @@ class VisionPage(QWidget):
         return row, spin, slider
 
     def _browse_yolo_model(self) -> None:
+        if not YOLO_FEATURE_ENABLED:
+            QMessageBox.information(self, "Select YOLO Model", "YOLO is disabled in the basic build.")
+            return
         default_path = str(Path.cwd())
         current = self.yolo_model_path.text().strip()
         if current:
@@ -693,6 +701,9 @@ class VisionPage(QWidget):
         self.status.setText(f"YOLO model selected: {path}")
 
     def _open_training_tool(self) -> None:
+        if not YOLO_FEATURE_ENABLED:
+            QMessageBox.information(self, "Open Training Tool", "YOLO training is not included in the basic build.")
+            return
         try:
             executable = launch_training_tool()
         except FileNotFoundError as exc:
@@ -702,6 +713,9 @@ class VisionPage(QWidget):
         self.status.setText(f"Training tool opened: {executable}")
 
     def _import_yolo_model(self) -> None:
+        if not YOLO_FEATURE_ENABLED:
+            QMessageBox.information(self, "Import YOLO Model", "YOLO is disabled in the basic build.")
+            return
         default_path = str(Path.cwd())
         current = self.yolo_model_path.text().strip()
         if current:
@@ -741,6 +755,9 @@ class VisionPage(QWidget):
         self.status.setText(f"YOLO model imported: {imported}")
 
     def _test_yolo_model(self) -> None:
+        if not YOLO_FEATURE_ENABLED:
+            QMessageBox.information(self, "Test Model", "YOLO is disabled in the basic build.")
+            return
         if not self.yolo_model_path.text().strip():
             QMessageBox.information(self, "Test Model", "Import or select a YOLO model first.")
             return
@@ -805,7 +822,7 @@ class VisionPage(QWidget):
 
     def _apply_detection_config(self) -> None:
         config = DetectionConfig(
-            method=self.method_combo.currentText(),
+            method=self.method_combo.currentText() if self.method_combo.currentText() in DETECTION_ALGORITHMS else "Blob",
             roi_x_percent=self.roi_x.value(),
             roi_y_percent=self.roi_y.value(),
             roi_w_percent=self.roi_w.value(),

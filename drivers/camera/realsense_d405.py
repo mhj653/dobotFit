@@ -4,9 +4,9 @@ from typing import Any
 
 import numpy as np
 
+from core.features import yolo_enabled
 from core.models import Result
 from drivers.camera.base import CalibrationConfig, CameraFrame, CheckerboardConfig, DetectionConfig, VisionResult
-from drivers.vision.yolo_detector import YoloDetection, YoloSegDetector
 
 
 class RealSenseD405Camera:
@@ -38,8 +38,13 @@ class RealSenseD405Camera:
         self._last_processed: np.ndarray | None = None
         self.detection_config = DetectionConfig()
         self.calibration = CalibrationConfig.identity()
-        self._yolo_detector = YoloSegDetector()
-        self._detectors = {"Blob": self._detect_blob, "YOLO Segmentation": self._detect_yolo_segmentation}
+        self._yolo_detector: Any | None = None
+        self._detectors = {"Blob": self._detect_blob}
+        if yolo_enabled():
+            from drivers.vision.yolo_detector import YoloSegDetector
+
+            self._yolo_detector = YoloSegDetector()
+            self._detectors["YOLO Segmentation"] = self._detect_yolo_segmentation
 
     def configure_detection(self, config: DetectionConfig) -> None:
         self.detection_config = config
@@ -411,6 +416,8 @@ class RealSenseD405Camera:
     def _detect_yolo_segmentation(self, cv2: Any, gray: np.ndarray, roi_x: int, roi_y: int) -> tuple[int | None, int | None, float, str, float]:
         if self._last_color is None:
             return None, None, 0.0, "No RGB frame for YOLO detection", 0.0
+        if self._yolo_detector is None:
+            return None, None, 0.0, "YOLO feature is not enabled in this build", 0.0
         roi_h, roi_w = gray.shape[:2]
         roi_image = self._last_color[roi_y : roi_y + roi_h, roi_x : roi_x + roi_w]
         detections = self._yolo_detector.detect(
@@ -457,7 +464,7 @@ class RealSenseD405Camera:
             float(selected.angle_deg),
         )
 
-    def _select_yolo_detection(self, detections: list[YoloDetection]) -> YoloDetection:
+    def _select_yolo_detection(self, detections: list[Any]) -> Any:
         return max(detections, key=lambda detection: (detection.confidence, detection.area))
 
     def _contour_angle_deg(self, cv2: Any, contour: np.ndarray) -> float:
